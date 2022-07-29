@@ -1,23 +1,25 @@
 use anyhow::Result;
 use serenity::async_trait;
 use serenity::client::Context;
-use serenity::framework::standard::macros::{command, group};
-use serenity::framework::standard::CommandResult;
-use serenity::framework::StandardFramework;
 use serenity::model::channel::Message;
+use serenity::model::gateway::Ready;
 use serenity::prelude::*;
 use tracing::info;
 use tracing_bunyan_formatter::{BunyanFormattingLayer, JsonStorageLayer};
 use tracing_subscriber::{filter::EnvFilter, layer::SubscriberExt, Registry};
 
-#[group]
-#[commands(zanders)]
-struct General;
-
 struct Handler;
 
 #[async_trait]
-impl EventHandler for Handler {}
+impl EventHandler for Handler {
+  async fn ready(&self, _: Context, ready: Ready) {
+    info!("Bot is ready as {}", ready.user.name)
+  }
+
+  async fn message(&self, _ctx: Context, msg: Message) {
+    info!("MSG {:?}", msg)
+  }
+}
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -40,13 +42,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
   let intents = GatewayIntents::non_privileged() | GatewayIntents::MESSAGE_CONTENT;
 
-  let framework = StandardFramework::new()
-    .configure(|cfg| cfg.prefix("!"))
-    .group(&GENERAL_GROUP);
-
   let mut client = Client::builder(token, intents)
     .event_handler(Handler)
-    .framework(framework)
     .await
     .expect("Failed to create bot");
 
@@ -66,12 +63,3 @@ fn env_key(key: &str) -> Result<String, String> {
     Some(value) => Ok(value),
   }
 }
-
-#[command]
-async fn zanders(ctx: &Context, msg: &Message) -> CommandResult {
-  msg.reply(ctx, "Ola <@246694289776574464>!!").await?;
-
-  Ok(())
-}
-
-#[command]
