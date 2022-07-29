@@ -1,23 +1,34 @@
-use anyhow::Result;
+use anyhow::{Context as anyhowContext, Result};
+use rand::Rng;
 use serenity::async_trait;
 use serenity::client::Context;
 use serenity::model::channel::Message;
 use serenity::model::gateway::Ready;
 use serenity::prelude::*;
+use songbird::SerenityInit;
 use tracing::{error, info};
 use tracing_bunyan_formatter::{BunyanFormattingLayer, JsonStorageLayer};
 use tracing_subscriber::{filter::EnvFilter, layer::SubscriberExt, Registry};
+use tracing_tree::HierarchicalLayer;
+
+mod command;
 
 struct Bot;
 
 impl Bot {
-  #[tracing::instrument(skip_all, fields(message_contents = %msg.content))]
+  #[tracing::instrument(skip_all, fields(
+    author_id = %msg.author.id,
+    author_name = %msg.author.name,
+    message_content = %msg.content
+  ))]
   async fn command_handler(ctx: Context, msg: &Message) {
     if msg.is_own(&ctx) {
       return;
     }
 
-    info!("received message");
+    if let Err(err) = sex(&ctx, msg).await {
+      error!("error executing sexo handler. error={:?}", err);
+    }
 
     let prefix = "b!";
     let is_command = msg.content.starts_with(prefix);
@@ -36,22 +47,87 @@ impl Bot {
       Some(v) => v,
     };
 
-    info!("executing command. command={}", cmd);
-
-    match cmd {
-      "echo" => match msg.reply(ctx, args.collect::<Vec<_>>().join(" ")).await {
-        Err(err) => {
-          error!("error replying to message. error={:?}", err);
-        }
-        Ok(_message) => {
-          info!("replied to message");
-        }
-      },
-      _ => info!("caguei pra esse"),
+    let result = match cmd {
+      "echo" => echo(&ctx, msg, args.collect::<Vec<_>>().join(" ")).await,
+      "zanders" => zanders(&ctx, msg).await,
+      cmd => {
+        info!("unknown command. command={}", cmd);
+        Ok(())
+      }
     };
 
-    info!("cmd={:?}", cmd);
+    if let Err(err) = result {
+      error!("error executing command. command={} error={:?}", cmd, err);
+    }
   }
+}
+
+#[tracing::instrument(name = "sexo", skip_all)]
+async fn sex(ctx: &Context, msg: &Message) -> Result<()> {
+  if msg.content.contains("sexo") && rand::thread_rng().gen_range(0..=1000) <= 10 {
+    let _ = msg
+      .reply(&ctx, "só um sexozinho agora pprt :hot_face:")
+      .await;
+  }
+
+  Ok(())
+}
+
+#[tracing::instrument(name = "echo", skip_all)]
+async fn echo(ctx: &Context, msg: &Message, arg: String) -> Result<()> {
+  msg.reply(ctx, arg).await?;
+
+  Ok(())
+}
+
+#[tracing::instrument(name = "zanders", skip_all)]
+async fn zanders(ctx: &Context, msg: &Message) -> Result<()> {
+  let manager = songbird::get(ctx).await.context("songbird faio dog")?;
+
+  let guild = msg.guild(&ctx).context("!!ZANDERS Failed to get guild")?;
+  let guild_id = guild.id;
+
+  let voice_channel_id = guild
+    .voice_states
+    .get(&msg.author.id)
+    .and_then(|vs| vs.channel_id);
+
+  let voice_channel_id = match voice_channel_id {
+    None => {
+      let _ = msg.reply(&ctx, "tu nao ta em call dog").await;
+      return Ok(());
+    }
+    Some(channel_id) => channel_id,
+  };
+
+  let _ = manager.join(guild_id, voice_channel_id).await;
+
+  info!("joined channel. voice_channel_id={}", voice_channel_id);
+
+  let guild_lock = manager
+    .get(guild_id)
+    .context("!!ZANDERS unable to get guild lock")?;
+
+  info!("acquired guild lock");
+
+  let mut handler = guild_lock.lock().await;
+
+  let input = songbird::ytdl("https://www.youtube.com/watch?v=Yb82Uck6I6Q").await?;
+
+  // let input = songbird::input::ffmpeg("../assets/yo_zanders.mp3")
+  //   .await
+  //   .context("error reading mp3 file")?;
+
+  info!("input loaded {:?}", input);
+
+  let track_handle = handler.play_source(input);
+
+  // vou coringar se for isso
+  track_handle.play().context("error playing track")?;
+
+  info!("playing input");
+
+  Ok(())
 }
 
 #[async_trait]
@@ -78,18 +154,23 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
   let subscriber = Registry::default()
     .with(EnvFilter::from_env("RUST_LOG"))
     .with(JsonStorageLayer)
+    .with(HierarchicalLayer::new(1))
     .with(bunyan_formatting_layer);
 
   tracing::subscriber::set_global_default(subscriber).unwrap();
 
   let token = env_key("DISCORD_TOKEN")?;
 
-  let intents = GatewayIntents::non_privileged() | GatewayIntents::MESSAGE_CONTENT;
-
-  let mut client = Client::builder(token, intents)
-    .event_handler(Bot)
-    .await
-    .expect("Failed to create bot");
+  let mut client = Client::builder(
+    token,
+    GatewayIntents::non_privileged()
+      | GatewayIntents::MESSAGE_CONTENT
+      | GatewayIntents::GUILD_VOICE_STATES,
+  )
+  .event_handler(Bot)
+  .register_songbird()
+  .await
+  .expect("Failed to create bot");
 
   info!("starting bot");
 
