@@ -4,20 +4,64 @@ use serenity::client::Context;
 use serenity::model::channel::Message;
 use serenity::model::gateway::Ready;
 use serenity::prelude::*;
-use tracing::info;
+use tracing::{error, info};
 use tracing_bunyan_formatter::{BunyanFormattingLayer, JsonStorageLayer};
 use tracing_subscriber::{filter::EnvFilter, layer::SubscriberExt, Registry};
 
-struct Handler;
+struct Bot;
+
+impl Bot {
+  #[tracing::instrument(skip_all, fields(message_contents = %msg.content))]
+  async fn command_handler(ctx: Context, msg: &Message) {
+    if msg.is_own(&ctx) {
+      return;
+    }
+
+    info!("received message");
+
+    let prefix = "b!";
+    let is_command = msg.content.starts_with(prefix);
+
+    if !is_command {
+      return;
+    }
+
+    let mut args = msg.content[prefix.len()..].split_whitespace();
+
+    let cmd = match args.next() {
+      None => {
+        info!("Ta maluco porra");
+        return;
+      }
+      Some(v) => v,
+    };
+
+    info!("executing command. command={}", cmd);
+
+    match cmd {
+      "echo" => match msg.reply(ctx, args.collect::<Vec<_>>().join(" ")).await {
+        Err(err) => {
+          error!("error replying to message. error={:?}", err);
+        }
+        Ok(_message) => {
+          info!("replied to message");
+        }
+      },
+      _ => info!("caguei pra esse"),
+    };
+
+    info!("cmd={:?}", cmd);
+  }
+}
 
 #[async_trait]
-impl EventHandler for Handler {
+impl EventHandler for Bot {
   async fn ready(&self, _: Context, ready: Ready) {
     info!("Bot is ready as {}", ready.user.name)
   }
 
-  async fn message(&self, _ctx: Context, msg: Message) {
-    info!("MSG {:?}", msg)
+  async fn message(&self, ctx: Context, msg: Message) {
+    Bot::command_handler(ctx, &msg).await;
   }
 }
 
@@ -43,7 +87,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
   let intents = GatewayIntents::non_privileged() | GatewayIntents::MESSAGE_CONTENT;
 
   let mut client = Client::builder(token, intents)
-    .event_handler(Handler)
+    .event_handler(Bot)
     .await
     .expect("Failed to create bot");
 
