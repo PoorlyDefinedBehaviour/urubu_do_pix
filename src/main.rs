@@ -4,10 +4,10 @@ use serenity::async_trait;
 use serenity::client::Context;
 use serenity::model::channel::Message;
 use serenity::model::gateway::Ready;
-use serenity::prelude::*;
 use serenity::model::id::ChannelId;
+use serenity::prelude::*;
 use songbird::SerenityInit;
-use tokio::sync::{RwLock, Mutex};
+use tokio::sync::{Mutex, RwLock};
 use tracing::{error, info};
 use tracing_bunyan_formatter::{BunyanFormattingLayer, JsonStorageLayer};
 use tracing_subscriber::{filter::EnvFilter, layer::SubscriberExt, Registry};
@@ -253,4 +253,3 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
   Ok(())
 }
-
