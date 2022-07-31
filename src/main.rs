@@ -9,12 +9,11 @@ use serenity::prelude::*;
 use songbird::SerenityInit;
 use tokio::sync::{Mutex, RwLock};
 use tracing::{error, info};
-use tracing_bunyan_formatter::{BunyanFormattingLayer, JsonStorageLayer};
+use tracing_bunyan_formatter::BunyanFormattingLayer;
 use tracing_subscriber::{filter::EnvFilter, layer::SubscriberExt, Registry};
 use tracing_tree::HierarchicalLayer;
 
 mod audio;
-mod music;
 mod text_generation;
 mod translation;
 mod tts;

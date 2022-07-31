@@ -1,4 +1,4 @@
-use tracing::{info, debug};
+use tracing::info;
 use anyhow::Result;
 
 pub struct Translation {
