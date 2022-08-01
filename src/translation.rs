@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use tracing::info;
 use anyhow::Result;
 
@@ -20,6 +22,7 @@ impl Translation {
   pub async fn translate(&self, text: &str, from_lang: &str, to_lang: &str) -> Result<String> {
     let response = self.client.get("https://translate.googleapis.com/translate_a/single?client=gtx")
       .query(&[("sl", from_lang),("tl" ,to_lang), ("dt","t"), ("q", text)])
+      .timeout(Duration::from_secs(5))
       .send()
       .await?
       .json::<serde_json::Value>()
