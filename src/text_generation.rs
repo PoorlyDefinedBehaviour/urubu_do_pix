@@ -50,7 +50,7 @@ impl TextGenerator {
       .header("developer_key", env_key("CHAIML_KEY")?)
       .header("Origin", "https://chai.ml")
       .json(&body)
-      .timeout(Duration::from_secs(5))
+      .timeout(Duration::from_secs(30))
       .send()
       .await?;
 

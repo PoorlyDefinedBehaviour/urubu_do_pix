@@ -22,7 +22,7 @@ impl Translation {
   pub async fn translate(&self, text: &str, from_lang: &str, to_lang: &str) -> Result<String> {
     let response = self.client.get("https://translate.googleapis.com/translate_a/single?client=gtx")
       .query(&[("sl", from_lang),("tl" ,to_lang), ("dt","t"), ("q", text)])
-      .timeout(Duration::from_secs(5))
+      .timeout(Duration::from_secs(10))
       .send()
       .await?
       .json::<serde_json::Value>()
