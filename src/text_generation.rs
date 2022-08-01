@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use tracing::{error, info};
@@ -46,6 +48,7 @@ impl TextGenerator {
         top_k: 40,
         response_length: 64,
       })
+      .timeout(Duration::from_secs(5))
       .send()
       .await?;
 
