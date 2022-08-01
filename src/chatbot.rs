@@ -1,11 +1,11 @@
-use std::{collections::HashSet, time::Duration};
+use std::{collections::HashSet, fmt::Write, time::Duration};
 
 use anyhow::Result;
 use serenity::{
   client::Context,
   model::{channel::Message, id::ChannelId},
 };
-use songbird::tracks::PlayMode;
+
 use tokio::sync::mpsc::{Receiver, Sender};
 use tokio::sync::{Mutex, RwLock};
 use tracing::{error, info};
@@ -27,6 +27,7 @@ pub struct ChatBot {
   translation: Translation,
 }
 
+/// The maximum number of voice channel voice messages that can be in the queue.
 const MAX_VOICE_CHAT_REPLY_QUEUE_LENGTH: usize = 256;
 
 struct VoiceChatReply {
@@ -138,14 +139,14 @@ impl ChatBot {
     let mut chat_bot_text = self.chat_bot_text.lock().await;
 
     // Save the chat bot response so we can use it as context later.
-    chat_bot_text.push_str(&format!("Me: {}\n", &message_in_english));
+    writeln!(&mut chat_bot_text, "Me: {}", &message_in_english)?;
 
     self.truncate_chat_bot_text_length(&mut chat_bot_text);
 
     let bot_message_in_english = self.text_generator.generate(chat_bot_text.clone()).await?;
 
     // Add bot response to context.
-    chat_bot_text.push_str(&format!("Eliza: {}\n", &bot_message_in_english));
+    writeln!(&mut chat_bot_text, "Eliza: {}", &bot_message_in_english)?;
 
     let bot_message_in_portuguese = self
       .translation
