@@ -139,7 +139,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
   let subscriber = Registry::default()
     .with(EnvFilter::from_env("RUST_LOG"))
     // .with(JsonStorageLayer);
-    .with(HierarchicalLayer::new(2))
+    .with(HierarchicalLayer::new(1))
     .with(bunyan_formatting_layer);
 
   tracing::subscriber::set_global_default(subscriber).unwrap();

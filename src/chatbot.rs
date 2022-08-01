@@ -85,38 +85,24 @@ impl ChatBot {
         Some(message) => {
           info!("playing voice chat reply");
 
-          match audio::play_audio(&message.ctx, &message.msg, message.audio_file_url).await {
-            Err(err) => {
-              error!("error playing conversation bot audio. error={:?}", err);
-            }
-            Ok(track_handle) => match track_handle.get_info().await {
-              Err(err) => {
-                error!("error getting track state. error={:?}", err);
-                continue;
-              }
-              Ok(track_state) => {
-                if let Err(err) =
-                  tokio::time::timeout(track_state.play_time + Duration::from_millis(500), async {
-                    loop {
-                      if let Ok(track_state) = track_handle.get_info().await {
-                        if track_state.playing == PlayMode::End {
-                          break;
-                        }
-
-                        tokio::time::sleep(Duration::from_millis(100)).await;
-                      }
-                    }
-                  })
-                  .await
-                {
-                  error!("timed out playing voice chat reply audio. error={:?}", err);
-                }
-              }
-            },
+          if let Err(err) = Self::do_send_voice_chat_reply(message).await {
+            error!("error sending voice chat reply. error={:?}", err);
           }
         }
       }
     }
+  }
+
+  #[tracing::instrument(skip_all)]
+  async fn do_send_voice_chat_reply(message: VoiceChatReply) -> Result<()> {
+    let track_handle =
+      audio::play_audio(&message.ctx, &message.msg, message.audio_file_url).await?;
+
+    let metadata = track_handle.metadata();
+
+    tokio::time::sleep(metadata.duration.unwrap() + Duration::from_secs(1)).await;
+
+    Ok(())
   }
 
   /// Ensure the text sent to the chat bot is not too long because the api may

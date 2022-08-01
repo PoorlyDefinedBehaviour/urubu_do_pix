@@ -9,3 +9,5 @@ text to speech does not return the data field for texts that are too long(maybe 
 The text bot generates messages prefixed by Me: sometimes. We could remove it since it makes the answer look weird.
 
 When you mention someone, the conversation bot uses the discord id instead of the user name, fix it.
+
+Remove links from text before creating audio file.

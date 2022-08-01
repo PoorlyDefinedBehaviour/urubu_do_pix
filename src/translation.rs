@@ -35,8 +35,12 @@ impl Translation {
               _ => return Err(anyhow::anyhow!("google translate returned unexpected format. response_body={:?}", response))
             });
           }
+
+          let translated_text = phrases.join("");
+
+          info!("translation={}", &translated_text);
           
-          Ok(phrases.join(""))
+          Ok(translated_text)
         },
         _ => Err(anyhow::anyhow!("google translate returned unexpected format. response_body={:?}", response))
       }
