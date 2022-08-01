@@ -1,19 +1,19 @@
 use anyhow::Result;
+use chatbot::ChatBot;
 use rand::Rng;
 use serenity::async_trait;
 use serenity::client::Context;
 use serenity::model::channel::Message;
 use serenity::model::gateway::Ready;
-use serenity::model::id::ChannelId;
 use serenity::prelude::*;
 use songbird::SerenityInit;
-use tokio::sync::{Mutex, RwLock};
 use tracing::{error, info};
 use tracing_bunyan_formatter::BunyanFormattingLayer;
 use tracing_subscriber::{filter::EnvFilter, layer::SubscriberExt, Registry};
 use tracing_tree::HierarchicalLayer;
 
 mod audio;
+mod chatbot;
 mod text_generation;
 mod translation;
 mod tts;
@@ -26,23 +26,12 @@ use tts::Tts;
 use crate::utils::env_key;
 
 struct Bot {
-  chat_bot_text: Mutex<String>,
-  tts: Tts,
-  text_generator: TextGenerator,
-  translation: Translation,
-  /// The text channel that the chat bot will have a conversation in.
-  chatbot_channel: RwLock<Option<ChannelId>>,
+  chatbot: ChatBot,
 }
 
 impl Bot {
-  pub fn new(tts: Tts, text_generator: TextGenerator, translation: Translation) -> Self {
-    Self {
-      chat_bot_text: Mutex::new(env_key("CHAIML_INITIAL_CONTEXT").unwrap()),
-      tts,
-      text_generator,
-      translation,
-      chatbot_channel: RwLock::new(None),
-    }
+  pub fn new(chatbot: ChatBot) -> Self {
+    Self { chatbot }
   }
 
   #[tracing::instrument(skip_all, fields(
@@ -67,7 +56,7 @@ impl Bot {
         error!("error executing sexo handler. error={:?}", err);
       }
 
-      if let Err(err) = self.conversation_bot(&ctx, msg).await {
+      if let Err(err) = self.chatbot.on_message(&ctx, msg).await {
         error!("error executing conversation_bot handler. error={:?}", err);
       }
 
@@ -88,7 +77,7 @@ impl Bot {
       "echo" => echo(&ctx, msg, args.collect::<Vec<_>>().join(" ")).await,
       "zanders" => zanders(&ctx, msg).await,
       "sound" => audio::handler(&ctx, msg, args.collect::<Vec<_>>()).await,
-      "chatbot" => self.set_chatbot_current_text_channel(&ctx, msg).await,
+      "chatbot" => self.chatbot.join_text_channel(&ctx, msg).await,
       cmd => {
         info!("unknown command. command={}", cmd);
         Ok(())
@@ -98,78 +87,6 @@ impl Bot {
     if let Err(err) = result {
       error!("error executing command. command={} error={:?}", cmd, err);
     }
-  }
-
-  /// Ensure the text sent to the chat bot is not too long because the api may
-  /// get slow if it is.
-  #[tracing::instrument(skip_all)]
-  fn truncate_chat_bot_text_length(&self, context: &mut String) {
-    // The api has a limit of 5000 characters but the chat bot gets slow at around 3500.
-    const MAX_CONVERSARTION_HISTORY_LEN: usize = 2750;
-    if context.len() > MAX_CONVERSARTION_HISTORY_LEN {
-      info!(
-        "pruning chat bot context. len_before_pruning={}",
-        context.len()
-      );
-      *context = context[context.len() - MAX_CONVERSARTION_HISTORY_LEN..].to_string();
-    }
-  }
-
-  #[tracing::instrument(name = "conversation_bot", skip_all)]
-  pub async fn conversation_bot(&self, ctx: &Context, msg: &Message) -> Result<()> {
-    // User must use the `chatbot` command to enable the bot in the channel.
-    let chatbot_channel = self.chatbot_channel.read().await;
-    if *chatbot_channel != Some(msg.channel_id) {
-      return Ok(());
-    }
-
-    let message_in_english: String = self.translation.translate(&msg.content, "pt", "en").await?;
-
-    let mut chat_bot_text = self.chat_bot_text.lock().await;
-
-    // Save the chat bot response so we can use it as context later.
-    chat_bot_text.push_str(&format!("Me: {}\n", &message_in_english));
-
-    self.truncate_chat_bot_text_length(&mut chat_bot_text);
-
-    let bot_message_in_english = self.text_generator.generate(chat_bot_text.clone()).await?;
-
-    // Add bot response to context.
-    chat_bot_text.push_str(&format!("Eliza: {}\n", &bot_message_in_english));
-
-    let bot_message_in_portuguese = self
-      .translation
-      .translate(&bot_message_in_english, "en", "pt")
-      .await?;
-
-    let answer = format!(
-      "EN:{} \n\nPT: {}",
-      bot_message_in_english, bot_message_in_portuguese
-    );
-
-    let (reply_result, create_audio_result) = tokio::join!(
-      msg.reply(ctx, &answer),
-      self.tts.create_audio(bot_message_in_portuguese.clone())
-    );
-
-    if let Err(err) = reply_result {
-      error!("error replying to message. error={:?}", err);
-    }
-
-    let file_url = create_audio_result?;
-
-    audio::play_audio(ctx, msg, file_url).await?;
-
-    Ok(())
-  }
-
-  #[tracing::instrument(name = "set_chatbot_current_text_channel", skip_all)]
-  async fn set_chatbot_current_text_channel(&self, ctx: &Context, msg: &Message) -> Result<()> {
-    *self.chatbot_channel.write().await = Some(msg.channel_id);
-
-    msg.reply(ctx, "chatbot joined the channel").await?;
-
-    Ok(())
   }
 }
 
@@ -235,11 +152,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
       | GatewayIntents::MESSAGE_CONTENT
       | GatewayIntents::GUILD_VOICE_STATES,
   )
-  .event_handler(Bot::new(
+  .event_handler(Bot::new(ChatBot::new(
     Tts::new(),
     TextGenerator::new(),
     Translation::new(),
-  ))
+  )))
   .register_songbird()
   .await
   .expect("Failed to create bot");

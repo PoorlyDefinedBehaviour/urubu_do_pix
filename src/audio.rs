@@ -1,5 +1,6 @@
 use anyhow::{Context as anyhowContext, Ok, Result};
 use serenity::{client::Context, model::channel::Message};
+use songbird::tracks::TrackHandle;
 use songbird::Songbird;
 use std::fmt::Debug;
 use std::{ffi::OsStr, path::Path, sync::Arc};
@@ -61,7 +62,7 @@ pub async fn play_audio<P: AsRef<OsStr> + Debug>(
   ctx: &Context,
   msg: &Message,
   link: P,
-) -> Result<()> {
+) -> Result<TrackHandle> {
   join_channel(ctx, msg).await?;
 
   let manager = get_songbird_manager(ctx).await?;
@@ -83,9 +84,7 @@ pub async fn play_audio<P: AsRef<OsStr> + Debug>(
 
   track_handle.play().context("Error playing track")?;
 
-  info!("Playing input");
-
-  Ok(())
+  Ok(track_handle)
 }
 
 pub async fn play_local_audio(ctx: &Context, msg: &Message, file_name: &str) -> Result<()> {
@@ -98,7 +97,9 @@ pub async fn play_local_audio(ctx: &Context, msg: &Message, file_name: &str) -> 
     return Ok(());
   }
 
-  play_audio(ctx, msg, file_path).await
+  let _ = play_audio(ctx, msg, file_path).await?;
+
+  Ok(())
 }
 
 pub async fn handler(ctx: &Context, msg: &Message, args_vec: Vec<&str>) -> Result<()> {
