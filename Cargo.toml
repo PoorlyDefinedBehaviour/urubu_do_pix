@@ -22,6 +22,7 @@ serde = "1.0.140"
 serde_json = "1.0.82"
 serde_urlencoded = "0.7.1"
 async-trait = "0.1.56"
+futures = "0.3.21"
 
 [dependencies.serenity]
 version = "0.11.4"

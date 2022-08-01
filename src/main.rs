@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::{str::SplitWhitespace, sync::Arc};
 
 use anyhow::Result;
 use chatbot::ChatBot;
@@ -80,7 +80,7 @@ impl Bot {
       "echo" => echo(&ctx, msg, args.collect::<Vec<_>>().join(" ")).await,
       "zanders" => zanders(&ctx, msg).await,
       "sound" => audio::handler(&ctx, msg, args.collect::<Vec<_>>()).await,
-      "chatbot" => self.chatbot.join_text_channel(&ctx, msg).await,
+      "chatbot" => self.chatbot(&ctx, msg, args).await,
       cmd => {
         info!("unknown command. command={}", cmd);
         Ok(())
@@ -90,6 +90,43 @@ impl Bot {
     if let Err(err) = result {
       error!("error executing command. command={} error={:?}", cmd, err);
     }
+  }
+
+  #[tracing::instrument(name = "chatbot", skip_all)]
+  async fn chatbot(
+    &self,
+    ctx: &Context,
+    msg: &Message,
+    mut args: SplitWhitespace<'_>,
+  ) -> Result<()> {
+    match args.next() {
+      None => self.chatbot.join_text_channel(ctx, msg).await?,
+      Some(subcommand) => match subcommand {
+        "voice" => {
+          let arg = args.next();
+          match arg {
+            Some("enable") => {
+              self.chatbot.enable_voice();
+              msg.reply(&ctx, "voice chat enabled").await?;
+            }
+            Some("disable") => {
+              self.chatbot.disable_voice();
+              msg.reply(&ctx, "voice chat disabled").await?;
+            }
+            _ => {
+              msg
+                .reply(&ctx, format!("unexpected argument: {:?}", arg))
+                .await?;
+            }
+          }
+        }
+        _ => {
+          info!("unknown subcommand. subcommand={}", subcommand);
+        }
+      },
+    }
+
+    Ok(())
   }
 }
 

@@ -1,4 +1,4 @@
-use std::fmt::Write;
+use std::{fmt::Write, time::Duration};
 
 use crate::contracts;
 use anyhow::{Context, Result};
@@ -25,7 +25,8 @@ struct CreateSoundResponse {
 
 #[derive(Debug, Deserialize)]
 struct GetSoundLocationResponse {
-  pub location: String,
+  pub status: String,
+  pub location: Option<String>,
 }
 
 pub struct Tts {
@@ -38,13 +39,9 @@ impl Tts {
       client: reqwest::Client::new(),
     }
   }
-}
 
-#[async_trait]
-impl contracts::TextToSpeech for Tts {
-  /// Creates a mp3 file containing `text` and returns its url.
-  #[tracing::instrument(skip_all)]
-  async fn create_audio(&self, text: String) -> Result<String> {
+  #[tracing::instrument(skip_all, fields(text = %text))]
+  async fn generate_audio(&self, text: String) -> Result<String> {
     let body = CreateSoundRequest {
       engine: String::from("google"),
       data: CreateSoundRequestData {
@@ -70,37 +67,62 @@ impl contracts::TextToSpeech for Tts {
 
     info!("created audio file. response={:?}", &response);
 
-    let response = reqwest::Client::new()
-      .get(format!(
-        "https://api.soundoftext.com/sounds/{}",
-        response.id
-      ))
-      .header("Host", "api.soundoftext.com")
-      .header("Referer", "https://soundoftext.com/")
-      .header("Content-Type", "application/json")
-      .header("Origin", "https://soundoftext.com")
-      .send()
-      .await?;
+    loop {
+      let response = self
+        .client
+        .get(format!(
+          "https://api.soundoftext.com/sounds/{}",
+          response.id
+        ))
+        .header("Host", "api.soundoftext.com")
+        .header("Referer", "https://soundoftext.com/")
+        .header("Content-Type", "application/json")
+        .header("Origin", "https://soundoftext.com")
+        .timeout(Duration::from_secs(60))
+        .send()
+        .await?;
 
-    let response_body_text = response.text().await?;
+      let response_body_text = response.text().await?;
 
-    match serde_json::from_str::<GetSoundLocationResponse>(&response_body_text) {
-      Err(err) => {
-        let error = Err(anyhow::anyhow!(
-          "unexpected tts response. request_body={:?}, response={:?} error={:?}",
-          &body,
-          response_body_text,
-          err
-        ));
-        error!("error={:?}", error);
-        error
-      }
-      Ok(data) => {
-        info!("requested audio file location. response_body={:?}", &data);
+      match serde_json::from_str::<GetSoundLocationResponse>(&response_body_text) {
+        Err(err) => {
+          let error = Err(anyhow::anyhow!(
+            "unexpected tts response. request_body={:?}, response={:?} error={:?}",
+            &body,
+            response_body_text,
+            err
+          ));
+          error!("error={:?}", error);
+          return error;
+        }
+        Ok(data) => {
+          if data.status != "Pending" {
+            info!("requested audio file location. response_body={:?}", &data);
+            // SAFETY: location should be filled when status is not Pending.
+            return Ok(data.location.unwrap());
+          }
 
-        Ok(data.location)
+          info!("audio file is not ready, will try again after delay");
+          tokio::time::sleep(Duration::from_millis(200)).await;
+        }
       }
     }
+  }
+}
+
+#[async_trait]
+impl contracts::TextToSpeech for Tts {
+  /// Creates a mp3 file containing `text` and returns its url.
+  #[tracing::instrument(skip_all)]
+  async fn create_audio(&self, text: String) -> Result<Vec<String>> {
+    let chunks = divide_text_into_chunks(&text)?;
+
+    info!("divided text in chunks. chunks={:?}", &chunks);
+
+    futures::future::join_all(chunks.into_iter().map(|chunk| self.generate_audio(chunk)))
+      .await
+      .into_iter()
+      .collect::<Result<_, _>>()
   }
 }
 
@@ -109,18 +131,18 @@ fn split_str_and_include_separator(text: &str) -> Vec<(Option<char>, String)> {
 
   let mut buffer = String::new();
 
-  for (i, character) in text.chars().enumerate() {
+  for character in text.chars() {
     if character == '.' {
       pieces.push((Some('.'), std::mem::take(&mut buffer)));
     } else if character == ',' {
       pieces.push((Some(','), std::mem::take(&mut buffer)));
     } else {
       buffer.push(character);
-
-      if i == text.len() - 1 && !buffer.is_empty() {
-        pieces.push((None, std::mem::take(&mut buffer)));
-      }
     }
+  }
+
+  if !buffer.is_empty() {
+    pieces.push((None, std::mem::take(&mut buffer)));
   }
 
   pieces
@@ -187,27 +209,32 @@ mod tests {
 
   #[test]
   fn test_divide_text_into_chunks() {
-    let tests = vec![(
-      r#"
-      Once upon a time, in a far away swamp, there lived an ogre named Shrek (Mike Myers) whose precious solitude is suddenly shattered by an invasion of annoying fairy tale characters.
-      They were all banished from their kingdom by the evil Lord Farquaad (John Lithgow).
-      Determined to save their home -- not to mention his -- Shrek cuts a deal with Farquaad and sets out to rescue Princess Fiona (Cameron Diaz) to be Farquaad's bride.
-      Rescuing the Princess may be small compared to her deep, dark secret.
-    "#,
-    vec![
-      "\n      Once upon a time, in a far away swamp, there lived an ogre named Shrek (Mike Myers) whose precious solitude is suddenly shattered by an invasion of annoying fairy tale characters.",
-      "\n      They were all banished from their kingdom by the evil Lord Farquaad (John Lithgow).",
-      "\n      Determined to save their home -- not to mention his -- Shrek cuts a deal with Farquaad and sets out to rescue Princess Fiona (Cameron Diaz) to be Farquaad's bride.",
-      "\n      Rescuing the Princess may be small compared to her deep, dark secret.\n    ",
-    ]
-    ),
+    let tests = vec![
+    //   (
+    //   r#"
+    //   Once upon a time, in a far away swamp, there lived an ogre named Shrek (Mike Myers) whose precious solitude is suddenly shattered by an invasion of annoying fairy tale characters.
+    //   They were all banished from their kingdom by the evil Lord Farquaad (John Lithgow).
+    //   Determined to save their home -- not to mention his -- Shrek cuts a deal with Farquaad and sets out to rescue Princess Fiona (Cameron Diaz) to be Farquaad's bride.
+    //   Rescuing the Princess may be small compared to her deep, dark secret.
+    // "#,
+    // vec![
+    //   "\n      Once upon a time, in a far away swamp, there lived an ogre named Shrek (Mike Myers) whose precious solitude is suddenly shattered by an invasion of annoying fairy tale characters.",
+    //   "\n      They were all banished from their kingdom by the evil Lord Farquaad (John Lithgow).",
+    //   "\n      Determined to save their home -- not to mention his -- Shrek cuts a deal with Farquaad and sets out to rescue Princess Fiona (Cameron Diaz) to be Farquaad's bride.",
+    //   "\n      Rescuing the Princess may be small compared to her deep, dark secret.\n    ",
+    // ]
+    // ),
+    // (
+    //   "",
+    //   vec![]
+    // ),
+    // (
+    //   "Once upon. a time in. a far away swamp. there lived an ogre. named Shrek. ",
+    //   vec!["Once upon. a time in. a far away swamp. there lived an ogre. named Shrek. "]
+    // )
     (
-      "",
-      vec![]
-    ),
-    (
-      "Once upon. a time in. a far away swamp. there lived an ogre. named Shrek. ",
-      vec!["Once upon. a time in. a far away swamp. there lived an ogre. named Shrek. "]
+      "Hmm... bem, eu definitivamente poderia fazer isso para você. Quer que eu faça um pequeno teste de sabor primeiro?",
+      vec!["Hmm... bem, eu definitivamente poderia fazer isso para você. Quer que eu faça um pequeno teste de sabor primeiro?"]
     )
     ];
 

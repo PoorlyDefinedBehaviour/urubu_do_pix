@@ -1,4 +1,12 @@
-use std::{collections::HashSet, fmt::Write, sync::Arc, time::Duration};
+use std::{
+  collections::HashSet,
+  fmt::Write,
+  sync::{
+    atomic::{AtomicBool, Ordering},
+    Arc,
+  },
+  time::Duration,
+};
 
 use anyhow::Result;
 use serenity::{
@@ -19,6 +27,8 @@ pub struct ChatBot {
   chat_bot_text: Mutex<String>,
   /// The set of text channels that the bot will interact with messages.
   text_channels: RwLock<HashSet<ChannelId>>,
+  /// Will the bot reply to messages by playing audio?
+  voice_chat_enabled: AtomicBool,
   /// Push a message into this channel to play it in the voice chat.
   voice_chat_reply_sender: Sender<VoiceChatReply>,
   _voice_chat_reply_thread_handle: tokio::task::JoinHandle<()>,
@@ -31,7 +41,7 @@ pub struct ChatBot {
 const MAX_VOICE_CHAT_REPLY_QUEUE_LENGTH: usize = 256;
 
 struct VoiceChatReply {
-  audio_file_url: String,
+  audio_file_urls: Vec<String>,
   ctx: Context,
   msg: Message,
 }
@@ -39,7 +49,7 @@ struct VoiceChatReply {
 impl std::fmt::Debug for VoiceChatReply {
   fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
     f.debug_struct("VoiceChatReply")
-      .field("audio_file_url", &self.audio_file_url)
+      .field("audio_file_urls", &self.audio_file_urls)
       .field("ctx", &"DOES NOT IMPLEMENT DEBUG")
       .field("msg", &self.msg)
       .finish()
@@ -65,7 +75,23 @@ impl ChatBot {
       text_channels: RwLock::new(HashSet::new()),
       _voice_chat_reply_thread_handle: handle,
       voice_chat_reply_sender: sender,
+      voice_chat_enabled: AtomicBool::new(true),
     }
+  }
+
+  #[tracing::instrument(skip_all)]
+  pub fn enable_voice(&self) {
+    self.voice_chat_enabled.store(true, Ordering::Relaxed);
+  }
+
+  #[tracing::instrument(skip_all)]
+  pub fn disable_voice(&self) {
+    self.voice_chat_enabled.store(false, Ordering::Relaxed);
+  }
+
+  #[tracing::instrument(skip_all)]
+  pub fn is_voice_enabled(&self) -> bool {
+    self.voice_chat_enabled.load(Ordering::Relaxed)
   }
 
   /// Adds the bot the text channel where the message has been sent to.
@@ -100,12 +126,14 @@ impl ChatBot {
 
   #[tracing::instrument(skip_all)]
   async fn do_send_voice_chat_reply(message: VoiceChatReply) -> Result<()> {
-    let track_handle =
-      audio::play_audio(&message.ctx, &message.msg, message.audio_file_url).await?;
+    for audio_file_chunk_url in message.audio_file_urls.into_iter() {
+      let track_handle =
+        audio::play_audio(&message.ctx, &message.msg, audio_file_chunk_url).await?;
 
-    let metadata = track_handle.metadata();
+      let metadata = track_handle.metadata();
 
-    tokio::time::sleep(metadata.duration.unwrap() + Duration::from_secs(1)).await;
+      tokio::time::sleep(metadata.duration.unwrap() + Duration::from_millis(500)).await;
+    }
 
     Ok(())
   }
@@ -162,25 +190,26 @@ impl ChatBot {
       bot_message_in_english, bot_message_in_portuguese
     );
 
-    let (reply_result, create_audio_result) = tokio::join!(
-      msg.reply(ctx, &answer),
-      self
-        .tts
-        .create_audio(remove_links_from_text(&bot_message_in_portuguese))
-    );
-
-    if let Err(err) = reply_result {
+    if let Err(err) = msg.reply(ctx, &answer).await {
       error!("error replying to message. error={:?}", err);
     }
 
-    let audio_file_url = create_audio_result?;
+    if !self.is_voice_enabled() {
+      info!("voice chat is disabled");
+      return Ok(());
+    }
+
+    let audio_file_urls = self
+      .tts
+      .create_audio(remove_links_from_text(&bot_message_in_portuguese))
+      .await?;
 
     self
       .voice_chat_reply_sender
       .send(VoiceChatReply {
         ctx: ctx.clone(),
         msg: msg.clone(),
-        audio_file_url,
+        audio_file_urls,
       })
       .await?;
 
