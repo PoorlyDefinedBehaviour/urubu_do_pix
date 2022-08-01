@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use anyhow::Result;
 use chatbot::ChatBot;
 use rand::Rng;
@@ -14,6 +16,7 @@ use tracing_tree::HierarchicalLayer;
 
 mod audio;
 mod chatbot;
+mod contracts;
 mod text_generation;
 mod translation;
 mod tts;
@@ -153,7 +156,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
       | GatewayIntents::GUILD_VOICE_STATES,
   )
   .event_handler(Bot::new(ChatBot::new(
-    Tts::new(),
+    Arc::new(Tts::new()),
     TextGenerator::new(),
     Translation::new(),
   )))

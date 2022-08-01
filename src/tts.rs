@@ -1,6 +1,9 @@
-use anyhow::Result;
+use anyhow::{Context, Result};
+use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
-use tracing::info;
+use tracing::{error, info};
+
+use crate::contracts;
 
 #[derive(Debug, Serialize)]
 struct CreateSoundRequest {
@@ -34,10 +37,21 @@ impl Tts {
       client: reqwest::Client::new(),
     }
   }
+}
 
+#[async_trait]
+impl contracts::TextToSpeech for Tts {
   /// Creates a mp3 file containing `text` and returns its url.
   #[tracing::instrument(skip_all)]
-  pub async fn create_audio(&self, text: String) -> Result<String> {
+  async fn create_audio(&self, text: String) -> Result<String> {
+    let body = CreateSoundRequest {
+      engine: String::from("google"),
+      data: CreateSoundRequestData {
+        text,
+        voice: String::from("pt-BR"),
+      },
+    };
+
     let response = self
       .client
       .post("https://api.soundoftext.com/sounds")
@@ -45,17 +59,13 @@ impl Tts {
       .header("Referer", "https://soundoftext.com/")
       .header("Content-Type", "application/json")
       .header("Origin", "https://soundoftext.com")
-      .json(&CreateSoundRequest {
-        engine: String::from("google"),
-        data: CreateSoundRequestData {
-          text,
-          voice: String::from("pt-BR"),
-        },
-      })
+      .json(&body)
       .send()
-      .await?
+      .await
+      .with_context(|| format!("request_body={:?}", &body))?
       .json::<CreateSoundResponse>()
-      .await?;
+      .await
+      .with_context(|| format!("request_body={:?}", &body))?;
 
     info!("created audio file. response={:?}", &response);
 
@@ -69,12 +79,26 @@ impl Tts {
       .header("Content-Type", "application/json")
       .header("Origin", "https://soundoftext.com")
       .send()
-      .await?
-      .json::<GetSoundLocationResponse>()
       .await?;
 
-    info!("requested audio file location. response={:?}", &response);
+    let response_body_text = response.text().await?;
 
-    Ok(response.location)
+    match serde_json::from_str::<GetSoundLocationResponse>(&response_body_text) {
+      Err(err) => {
+        let error = Err(anyhow::anyhow!(
+          "unexpected tts response. request_body={:?}, response={:?} error={:?}",
+          &body,
+          response_body_text,
+          err
+        ));
+        error!("error={:?}", error);
+        error
+      }
+      Ok(data) => {
+        info!("requested audio file location. response_body={:?}", &data);
+
+        Ok(data.location)
+      }
+    }
   }
 }

@@ -13,3 +13,5 @@ When you mention someone, the conversation bot uses the discord id instead of th
 Remove links from text before creating audio file.
 
 Retry google translate call when it returns an unexpected response. (see if we are being rate limited)
+
+Tts text can have 200 characters at max.

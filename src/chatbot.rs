@@ -1,4 +1,4 @@
-use std::{collections::HashSet, fmt::Write, time::Duration};
+use std::{collections::HashSet, fmt::Write, sync::Arc, time::Duration};
 
 use anyhow::Result;
 use serenity::{
@@ -11,7 +11,7 @@ use tokio::sync::{Mutex, RwLock};
 use tracing::{error, info};
 
 use crate::{
-  audio, text_generation::TextGenerator, translation::Translation, tts::Tts, utils::env_key,
+  audio, contracts, text_generation::TextGenerator, translation::Translation, utils::env_key,
 };
 
 pub struct ChatBot {
@@ -22,7 +22,7 @@ pub struct ChatBot {
   /// Push a message into this channel to play it in the voice chat.
   voice_chat_reply_sender: Sender<VoiceChatReply>,
   _voice_chat_reply_thread_handle: tokio::task::JoinHandle<()>,
-  tts: Tts,
+  tts: Arc<dyn contracts::TextToSpeech>,
   text_generator: TextGenerator,
   translation: Translation,
 }
@@ -47,7 +47,11 @@ impl std::fmt::Debug for VoiceChatReply {
 }
 
 impl ChatBot {
-  pub fn new(tts: Tts, text_generator: TextGenerator, translation: Translation) -> Self {
+  pub fn new(
+    tts: Arc<dyn contracts::TextToSpeech>,
+    text_generator: TextGenerator,
+    translation: Translation,
+  ) -> Self {
     let (sender, receiver) = tokio::sync::mpsc::channel(MAX_VOICE_CHAT_REPLY_QUEUE_LENGTH);
 
     // Spawn a thread to send voice chat audio.
@@ -160,7 +164,9 @@ impl ChatBot {
 
     let (reply_result, create_audio_result) = tokio::join!(
       msg.reply(ctx, &answer),
-      self.tts.create_audio(bot_message_in_portuguese.clone())
+      self
+        .tts
+        .create_audio(remove_links_from_text(&bot_message_in_portuguese))
     );
 
     if let Err(err) = reply_result {
@@ -179,5 +185,49 @@ impl ChatBot {
       .await?;
 
     Ok(())
+  }
+}
+
+fn remove_links_from_text(text: &str) -> String {
+  text
+    .split_whitespace()
+    .filter(|s| !s.starts_with("http://") && !s.starts_with("https://"))
+    .collect::<Vec<_>>()
+    .join(" ")
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+
+  #[test]
+  fn test_remove_links_from_text() {
+    let tests = vec![
+      (
+        "Eu: @d!music search https://www.youtube.com/watch?v=JW1p9j8HVXA",
+        "Eu: @d!music search",
+      ),
+      (
+        "D!Pesquisa de música https://www.youtube.com/watch?v=Ao8F3FypsbI",
+        "D!Pesquisa de música",
+      ),
+      (
+        "Eu: @d!music search https://www.youtube.com/watch?v=JW1p9j8HVXA",
+        "Eu: @d!music search",
+      ),
+      (
+        "D!Pesquisa de música https://www.youtube.com/watch?v=Ao8F3FypsbI",
+        "D!Pesquisa de música",
+      ),
+      ("http://google.com", ""),
+      ("https://google.com", ""),
+      ("", ""),
+      ("123", "123"),
+      ("abc", "abc"),
+    ];
+
+    for (input, expected) in tests {
+      assert_eq!(expected, remove_links_from_text(input), "input={}", input);
+    }
   }
 }
