@@ -1,9 +1,10 @@
+use std::fmt::Write;
+
+use crate::contracts;
 use anyhow::{Context, Result};
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use tracing::{error, info};
-
-use crate::contracts;
 
 #[derive(Debug, Serialize)]
 struct CreateSoundRequest {
@@ -99,6 +100,119 @@ impl contracts::TextToSpeech for Tts {
 
         Ok(data.location)
       }
+    }
+  }
+}
+
+fn split_str_and_include_separator(text: &str) -> Vec<(Option<char>, String)> {
+  let mut pieces = vec![];
+
+  let mut buffer = String::new();
+
+  for (i, character) in text.chars().enumerate() {
+    if character == '.' {
+      pieces.push((Some('.'), std::mem::take(&mut buffer)));
+    } else if character == ',' {
+      pieces.push((Some(','), std::mem::take(&mut buffer)));
+    } else {
+      buffer.push(character);
+
+      if i == text.len() - 1 && !buffer.is_empty() {
+        pieces.push((None, std::mem::take(&mut buffer)));
+      }
+    }
+  }
+
+  pieces
+}
+
+/// The tts api accepts only 200 characters at a time, so if we get a text thats longer than that
+/// we split the text using the punctuation.
+fn divide_text_into_chunks(text: &str) -> Result<Vec<String>> {
+  let mut chunks = vec![];
+
+  let mut buffer = String::new();
+
+  let pieces = split_str_and_include_separator(text);
+
+  for (i, (separator, piece)) in pieces.iter().enumerate() {
+    if buffer.len() + piece.len() > 200 {
+      chunks.push(std::mem::take(&mut buffer));
+    }
+
+    match separator {
+      None => buffer.push_str(piece),
+      Some(separator) => {
+        write!(&mut buffer, "{}{}", piece, separator)?;
+      }
+    }
+
+    if i == pieces.len() - 1 && !buffer.is_empty() {
+      chunks.push(std::mem::take(&mut buffer));
+    }
+  }
+
+  Ok(chunks)
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+
+  #[test]
+  fn test_split_str_and_include_separator() {
+    let input = "Once upon a time, in a far away swamp, there lived an ogre named Shrek (Mike Myers) whose precious solitude is suddenly shattered by an invasion of annoying fairy tale characters.";
+    let expected = vec![
+      (
+          Some(
+              ',',
+          ),
+          String::from("Once upon a time"),
+      ),
+      (
+          Some(
+              ',',
+          ),
+          String::from(" in a far away swamp"),
+      ),
+      (
+          Some(
+              '.',
+          ),
+          String::from(" there lived an ogre named Shrek (Mike Myers) whose precious solitude is suddenly shattered by an invasion of annoying fairy tale characters"),
+      ),
+    ];
+    assert_eq!(expected, split_str_and_include_separator(input));
+  }
+
+  #[test]
+  fn test_divide_text_into_chunks() {
+    let tests = vec![(
+      r#"
+      Once upon a time, in a far away swamp, there lived an ogre named Shrek (Mike Myers) whose precious solitude is suddenly shattered by an invasion of annoying fairy tale characters.
+      They were all banished from their kingdom by the evil Lord Farquaad (John Lithgow).
+      Determined to save their home -- not to mention his -- Shrek cuts a deal with Farquaad and sets out to rescue Princess Fiona (Cameron Diaz) to be Farquaad's bride.
+      Rescuing the Princess may be small compared to her deep, dark secret.
+    "#,
+    vec![
+      "\n      Once upon a time, in a far away swamp, there lived an ogre named Shrek (Mike Myers) whose precious solitude is suddenly shattered by an invasion of annoying fairy tale characters.",
+      "\n      They were all banished from their kingdom by the evil Lord Farquaad (John Lithgow).",
+      "\n      Determined to save their home -- not to mention his -- Shrek cuts a deal with Farquaad and sets out to rescue Princess Fiona (Cameron Diaz) to be Farquaad's bride.",
+      "\n      Rescuing the Princess may be small compared to her deep, dark secret.\n    ",
+    ]
+    ),
+    (
+      "",
+      vec![]
+    ),
+    (
+      "Once upon. a time in. a far away swamp. there lived an ogre. named Shrek. ",
+      vec!["Once upon. a time in. a far away swamp. there lived an ogre. named Shrek. "]
+    )
+    ];
+
+    for (input, expected) in tests {
+      assert_eq!(expected, divide_text_into_chunks(input).unwrap());
     }
   }
 }
