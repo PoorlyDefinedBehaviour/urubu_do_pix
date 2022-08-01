@@ -7,8 +7,8 @@ use tracing::{error, info};
 use crate::utils::env_key;
 
 #[derive(Debug, Serialize)]
-struct ChatBotRequest {
-  pub text: String,
+struct ChatBotRequest<'a> {
+  pub text: &'a str,
   pub temperature: f32,
   pub repetition_penalty: f32,
   pub top_p: u32,
@@ -31,7 +31,16 @@ impl TextGenerator {
   /// Generates text based on `Context`. If you want it to talk about soccer,
   /// pass a context that contains a conversation about soccer.
   #[tracing::instrument(skip_all)]
-  pub async fn generate(&self, context: String) -> Result<String> {
+  pub async fn generate(&self, context: &str) -> Result<String> {
+    let body = ChatBotRequest {
+      text: context,
+      temperature: 0.6,
+      repetition_penalty: 1.1,
+      top_p: 1,
+      top_k: 40,
+      response_length: 64,
+    };
+
     let response = reqwest::Client::new()
       .post("https://model-api-shdxwd54ta-nw.a.run.app/generate/gptj")
       .header("Host", "model-api-shdxwd54ta-nw.a.run.app")
@@ -40,14 +49,7 @@ impl TextGenerator {
       .header("developer_uid", env_key("CHAIML_DEVELOPER_UUID")?)
       .header("developer_key", env_key("CHAIML_KEY")?)
       .header("Origin", "https://chai.ml")
-      .json(&ChatBotRequest {
-        text: context,
-        temperature: 0.6,
-        repetition_penalty: 1.1,
-        top_p: 1,
-        top_k: 40,
-        response_length: 64,
-      })
+      .json(&body)
       .timeout(Duration::from_secs(5))
       .send()
       .await?;
@@ -57,7 +59,8 @@ impl TextGenerator {
     match serde_json::from_str::<ChatBotResponse>(&response_body_text) {
       Err(err) => {
         let error = Err(anyhow::anyhow!(
-          "unexpected chat bot response. response={:?} error={:?}",
+          "unexpected chat bot response. request_body={:?}, response={:?} error={:?}",
+          &body,
           response_body_text,
           err
         ));

@@ -143,7 +143,7 @@ impl ChatBot {
 
     self.truncate_chat_bot_text_length(&mut chat_bot_text);
 
-    let bot_message_in_english = self.text_generator.generate(chat_bot_text.clone()).await?;
+    let bot_message_in_english = self.text_generator.generate(&chat_bot_text).await?;
 
     // Add bot response to context.
     writeln!(&mut chat_bot_text, "Eliza: {}", &bot_message_in_english)?;
