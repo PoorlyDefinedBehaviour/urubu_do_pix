@@ -64,7 +64,7 @@ impl ChatBot {
   ) -> Self {
     let (sender, receiver) = tokio::sync::mpsc::channel(MAX_VOICE_CHAT_REPLY_QUEUE_LENGTH);
 
-    // Spawn a thread to send voice chat audio.
+    // Spawn a thread to send voice chat messages.
     let handle = tokio::spawn(ChatBot::send_voice_chat_reply(receiver));
 
     Self {
@@ -149,7 +149,11 @@ impl ChatBot {
         "pruning chat bot context. len_before_pruning={}",
         context.len()
       );
-      *context = context[context.len() - MAX_CONVERSARTION_HISTORY_LEN..].to_string();
+
+      *context = context
+        .chars()
+        .take(context.len() - MAX_CONVERSARTION_HISTORY_LEN)
+        .collect();
     }
   }
 
