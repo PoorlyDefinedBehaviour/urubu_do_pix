@@ -152,7 +152,8 @@ impl ChatBot {
 
       *context = context
         .chars()
-        .take(context.len() - MAX_CONVERSARTION_HISTORY_LEN)
+        .skip(context.len() - MAX_CONVERSARTION_HISTORY_LEN)
+        .take(MAX_CONVERSARTION_HISTORY_LEN)
         .collect();
     }
   }
