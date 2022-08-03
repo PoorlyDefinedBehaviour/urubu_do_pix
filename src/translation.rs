@@ -1,16 +1,18 @@
-use std::time::Duration;
+use std::{time::Duration, sync::Arc};
 
 use tracing::info;
 use anyhow::Result;
 
+use crate::contracts::{self, GetOptions};
+
 pub struct Translation {
-  client: reqwest::Client
+  http_client: Arc<dyn contracts::HttpClient>
 }
 
 impl Translation {
-  pub fn new() -> Self {
+  pub fn new(http_client: Arc<dyn contracts::HttpClient>) -> Self {
     Self {
-      client: reqwest::Client::new(),
+      http_client
     }
   }
 
@@ -20,14 +22,20 @@ impl Translation {
     text = %text
   ))]
   pub async fn translate(&self, text: &str, from_lang: &str, to_lang: &str) -> Result<String> {
-    let response = self.client.get("https://translate.googleapis.com/translate_a/single?client=gtx")
-      .query(&[("sl", from_lang),("tl" ,to_lang), ("dt","t"), ("q", text)])
-      .timeout(Duration::from_secs(10))
-      .send()
-      .await?
-      .json::<serde_json::Value>()
+    let response= self.http_client.get("https://translate.googleapis.com/translate_a/single?client=gtx", Some(GetOptions{
+       headers: None, 
+       query: Some(vec![
+         ("sl".to_string(), from_lang.to_string()),
+         ("tl".to_string() ,to_lang.to_string()),
+         ("dt".to_string(),"t".to_string()),
+         ("q".to_string(), text.to_string())
+       ]),
+       timeout: Some(Duration::from_secs(30)),
+      }))
       .await?;
 
+       let response: serde_json::Value = serde_json::from_slice(&response.body)?;
+    
       match &response[0] {
         serde_json::Value::Array(translations) => {
           let mut phrases = Vec::with_capacity(translations.len());

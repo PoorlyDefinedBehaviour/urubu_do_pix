@@ -202,7 +202,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
       },
       Arc::new(ReqwestHttpClient::new()),
     ),
-    Translation::new(),
+    Translation::new(Arc::new(ReqwestHttpClient::new())),
   )))
   .register_songbird()
   .await
