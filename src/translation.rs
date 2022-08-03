@@ -34,16 +34,20 @@ impl Translation {
       }))
       .await?;
 
-       let response: serde_json::Value = serde_json::from_slice(&response.body)?;
+      let body: serde_json::Value = serde_json::from_slice(&response.body)?;
     
-      match &response[0] {
+      match &body[0] {
         serde_json::Value::Array(translations) => {
           let mut phrases = Vec::with_capacity(translations.len());
 
           for translation in translations.iter() {
             phrases.push(match &translation[0] {
               serde_json::Value::String(phrase) => phrase.clone(),
-              _ => return Err(anyhow::anyhow!("google translate returned unexpected format. response_body={:?}", response))
+              _ => return Err(
+                anyhow::anyhow!(
+                  "google translate returned unexpected format. response_body={:?} headers={:?}", 
+                  body, &response.headers
+                ))
             });
           }
 

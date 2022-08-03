@@ -55,8 +55,12 @@ impl contracts::HttpClient for ReqwestHttpClient {
       }
     }
 
-    let body = request_builder.send().await?.bytes().await?;
+    let response = request_builder.send().await?;
+    let headers = response.headers().clone();
 
-    Ok(GetResponse { body })
+    Ok(GetResponse {
+      body: response.bytes().await?,
+      headers,
+    })
   }
 }

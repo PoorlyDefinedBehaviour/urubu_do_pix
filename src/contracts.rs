@@ -1,6 +1,7 @@
 use anyhow::Result;
 use async_trait::async_trait;
 use bytes::Bytes;
+use reqwest::header::HeaderMap;
 use std::time::Duration;
 
 #[cfg_attr(test, mockall::automock)]
@@ -15,6 +16,7 @@ pub struct PostOptions {
   pub timeout: Option<Duration>,
 }
 
+#[derive(Debug)]
 pub struct PostResponse {
   pub body: Bytes,
 }
@@ -26,7 +28,9 @@ pub struct GetOptions {
   pub timeout: Option<Duration>,
 }
 
+#[derive(Debug)]
 pub struct GetResponse {
+  pub headers: HeaderMap,
   pub body: Bytes,
 }
 
