@@ -56,6 +56,7 @@ impl TextGenerator {
       .http_client
       .post(
         "https://model-api-shdxwd54ta-nw.a.run.app/generate/gptj",
+        serde_json::to_vec(&body)?,
         Some(PostOptions {
           headers: Some(vec![
             (
@@ -135,7 +136,7 @@ mod generate_tests {
     for (input, expected) in tests.into_iter() {
       let mut http_client = MockHttpClient::new();
 
-      http_client.expect_post().returning(move |_, _| {
+      http_client.expect_post().returning(move |_, _, _| {
         Ok(PostResponse {
           body: Bytes::from(serde_json::to_string(&serde_json::json!({
             "data": input

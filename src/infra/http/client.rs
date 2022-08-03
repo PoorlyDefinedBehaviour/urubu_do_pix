@@ -16,7 +16,12 @@ impl ReqwestHttpClient {
 
 #[async_trait]
 impl contracts::HttpClient for ReqwestHttpClient {
-  async fn post(&self, url: &str, options: Option<PostOptions>) -> Result<PostResponse> {
+  async fn post(
+    &self,
+    url: &str,
+    body: Vec<u8>,
+    options: Option<PostOptions>,
+  ) -> Result<PostResponse> {
     let mut request_builder = self.client.post(url);
 
     if let Some(options) = options {
@@ -31,7 +36,7 @@ impl contracts::HttpClient for ReqwestHttpClient {
       }
     }
 
-    let body = request_builder.send().await?.bytes().await?;
+    let body = request_builder.body(body).send().await?.bytes().await?;
 
     Ok(PostResponse { body })
   }

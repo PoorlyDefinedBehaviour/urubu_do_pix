@@ -37,6 +37,11 @@ pub struct GetResponse {
 #[cfg_attr(test, mockall::automock)]
 #[async_trait]
 pub trait HttpClient: Send + Sync {
-  async fn post(&self, url: &str, options: Option<PostOptions>) -> Result<PostResponse>;
+  async fn post(
+    &self,
+    url: &str,
+    body: Vec<u8>,
+    options: Option<PostOptions>,
+  ) -> Result<PostResponse>;
   async fn get(&self, url: &str, options: Option<GetOptions>) -> Result<GetResponse>;
 }
