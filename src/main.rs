@@ -17,6 +17,7 @@ use tracing_tree::HierarchicalLayer;
 mod audio;
 mod chatbot;
 mod contracts;
+mod infra;
 mod text_generation;
 mod translation;
 mod tts;
@@ -26,7 +27,7 @@ use text_generation::TextGenerator;
 use translation::Translation;
 use tts::Tts;
 
-use crate::utils::env_key;
+use crate::{infra::http::client::ReqwestHttpClient, text_generation::Config, utils::env_key};
 
 struct Bot {
   chatbot: ChatBot,
@@ -194,7 +195,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
   )
   .event_handler(Bot::new(ChatBot::new(
     Arc::new(Tts::new()),
-    TextGenerator::new(),
+    TextGenerator::new(
+      Config {
+        chaiml_developer_uuid: env_key("CHAIML_DEVELOPER_UUID")?,
+        chaiml_key: env_key("CHAIML_KEY")?,
+      },
+      Arc::new(ReqwestHttpClient::new()),
+    ),
     Translation::new(),
   )))
   .register_songbird()
