@@ -1,4 +1,5 @@
 use anyhow::Result;
+use retry::{ExponentialBackoff, Retry};
 use serde::{Deserialize, Serialize};
 use std::{sync::Arc, time::Duration};
 use tracing::{error, info};
@@ -43,63 +44,69 @@ impl TextGenerator {
   /// pass a context that contains a conversation about soccer.
   #[tracing::instrument(skip_all)]
   pub async fn generate(&self, context: &str) -> Result<String> {
-    let body = ChatBotRequest {
-      text: context,
-      temperature: 0.6,
-      repetition_penalty: 1.1,
-      top_p: 1,
-      top_k: 40,
-      response_length: 64,
-    };
+    Retry::new()
+      .retries(3)
+      .backoff(ExponentialBackoff::recommended())
+      .exec(|| async {
+        let body = ChatBotRequest {
+          text: context,
+          temperature: 0.6,
+          repetition_penalty: 1.1,
+          top_p: 1,
+          top_k: 40,
+          response_length: 64,
+        };
 
-    let response = self
-      .http_client
-      .post(
-        "https://model-api-shdxwd54ta-nw.a.run.app/generate/gptj",
-        serde_json::to_vec(&body)?,
-        Some(PostOptions {
-          headers: Some(vec![
-            (
-              "Host".to_string(),
-              "model-api-shdxwd54ta-nw.a.run.app".to_string(),
-            ),
-            ("Referer".to_string(), "https://chai.ml/".to_string()),
-            ("Content-Type".to_string(), "application/json".to_string()),
-            (
-              "developer_uid".to_string(),
-              self.config.chaiml_developer_uuid.clone(),
-            ),
-            ("developer_key".to_string(), self.config.chaiml_key.clone()),
-            ("Origin".to_string(), "https://chai.ml".to_string()),
-          ]),
-          timeout: Some(Duration::from_secs(30)),
-        }),
-      )
-      .await?;
+        let response = self
+          .http_client
+          .post(
+            "https://model-api-shdxwd54ta-nw.a.run.app/generate/gptj",
+            serde_json::to_vec(&body)?,
+            Some(PostOptions {
+              headers: Some(vec![
+                (
+                  "Host".to_string(),
+                  "model-api-shdxwd54ta-nw.a.run.app".to_string(),
+                ),
+                ("Referer".to_string(), "https://chai.ml/".to_string()),
+                ("Content-Type".to_string(), "application/json".to_string()),
+                (
+                  "developer_uid".to_string(),
+                  self.config.chaiml_developer_uuid.clone(),
+                ),
+                ("developer_key".to_string(), self.config.chaiml_key.clone()),
+                ("Origin".to_string(), "https://chai.ml".to_string()),
+              ]),
+              timeout: Some(Duration::from_secs(30)),
+            }),
+          )
+          .await?;
 
-    match serde_json::from_slice::<ChatBotResponse>(&response.body) {
-      Err(err) => {
-        let error = Err(anyhow::anyhow!(
-          "unexpected chat bot response. request_body={:?}, response={:?} error={:?}",
-          &body,
-          String::from_utf8_lossy(&response.body),
-          err
-        ));
-        error!("error={:?}", error);
-        error
-      }
-      Ok(body) => {
-        info!("text generated. text={}", &body.data);
+        match serde_json::from_slice::<ChatBotResponse>(&response.body) {
+          Err(err) => {
+            let error = Err(anyhow::anyhow!(
+              "unexpected chat bot response. request_body={:?}, response={:?} error={:?}",
+              &body,
+              String::from_utf8_lossy(&response.body),
+              err
+            ));
+            error!("error={:?}", error);
+            error
+          }
+          Ok(body) => {
+            info!("text generated. text={}", &body.data);
 
-        for target in ["Eliza: ", "Eliza:", "Me: ", "Me:"] {
-          if body.data.starts_with(target) {
-            return Ok(body.data.replace(target, ""));
+            for target in ["Eliza: ", "Eliza:", "Me: ", "Me:"] {
+              if body.data.starts_with(target) {
+                return Ok(body.data.replace(target, ""));
+              }
+            }
+
+            Ok(body.data)
           }
         }
-
-        Ok(body.data)
-      }
-    }
+      })
+      .await
   }
 }
 
