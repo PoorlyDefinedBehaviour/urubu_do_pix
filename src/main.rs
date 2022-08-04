@@ -27,7 +27,14 @@ use text_generation::TextGenerator;
 use translation::Translation;
 use tts::Tts;
 
-use crate::{infra::http::client::ReqwestHttpClient, text_generation::Config, utils::env_key};
+use crate::{
+  infra::{
+    cache::{self, redis::RedisCache},
+    http::client::ReqwestHttpClient,
+  },
+  text_generation::Config,
+  utils::env_key,
+};
 
 struct Bot {
   chatbot: ChatBot,
@@ -203,6 +210,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
       Arc::new(ReqwestHttpClient::new()),
     ),
     Translation::new(Arc::new(ReqwestHttpClient::new())),
+    Arc::new(RedisCache::new(cache::redis::Config {
+      host: env_key("REDIS_HOST")?,
+      port: env_key("REDIS_PORT")?.parse::<u16>()?,
+      password: env_key("REDIS_PASSWORD")?,
+    })?),
   )))
   .register_songbird()
   .await

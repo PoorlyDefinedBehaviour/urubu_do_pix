@@ -15,16 +15,12 @@ use serenity::{
 };
 
 use tokio::sync::mpsc::{Receiver, Sender};
-use tokio::sync::{Mutex, RwLock};
+use tokio::sync::RwLock;
 use tracing::{error, info};
 
-use crate::{
-  audio, contracts, text_generation::TextGenerator, translation::Translation, utils::env_key,
-};
+use crate::{audio, contracts, text_generation::TextGenerator, translation::Translation};
 
 pub struct ChatBot {
-  /// TODO: doc
-  chat_bot_text: Mutex<String>,
   /// The set of text channels that the bot will interact with messages.
   text_channels: RwLock<HashSet<ChannelId>>,
   /// Will the bot reply to messages by playing audio?
@@ -35,6 +31,7 @@ pub struct ChatBot {
   tts: Arc<dyn contracts::TextToSpeech>,
   text_generator: TextGenerator,
   translation: Translation,
+  cache: Arc<dyn contracts::Cache>,
 }
 
 /// The maximum number of voice channel voice messages that can be in the queue.
@@ -61,6 +58,7 @@ impl ChatBot {
     tts: Arc<dyn contracts::TextToSpeech>,
     text_generator: TextGenerator,
     translation: Translation,
+    cache: Arc<dyn contracts::Cache>,
   ) -> Self {
     let (sender, receiver) = tokio::sync::mpsc::channel(MAX_VOICE_CHAT_REPLY_QUEUE_LENGTH);
 
@@ -68,7 +66,6 @@ impl ChatBot {
     let handle = tokio::spawn(ChatBot::send_voice_chat_reply(receiver));
 
     Self {
-      chat_bot_text: Mutex::new(env_key("CHAIML_INITIAL_CONTEXT").unwrap()),
       tts,
       text_generator,
       translation,
@@ -76,6 +73,7 @@ impl ChatBot {
       _voice_chat_reply_thread_handle: handle,
       voice_chat_reply_sender: sender,
       voice_chat_enabled: AtomicBool::new(true),
+      cache,
     }
   }
 
@@ -141,7 +139,7 @@ impl ChatBot {
   /// Ensure the text sent to the chat bot is not too long because the api may
   /// get slow if it is.
   #[tracing::instrument(skip_all)]
-  fn truncate_chat_bot_text_length(&self, context: &mut String) {
+  fn truncate_conversation_length(&self, context: &mut String) {
     // The api has a limit of 5000 characters but the chat bot gets slow at around 3500.
     const MAX_CONVERSARTION_HISTORY_LEN: usize = 2750;
     if context.len() > MAX_CONVERSARTION_HISTORY_LEN {
@@ -156,6 +154,32 @@ impl ChatBot {
         .take(MAX_CONVERSARTION_HISTORY_LEN)
         .collect();
     }
+  }
+
+  #[tracing::instrument(skip_all, fields(user_id = %user_id))]
+  async fn get_conversation_for_user(&self, user_id: u64) -> Result<Option<String>> {
+    let conversation = self
+      .cache
+      .get(&user_id.to_le_bytes())
+      .await?
+      .map(|bytes| String::from_utf8_lossy(&bytes).to_string());
+
+    Ok(conversation)
+  }
+
+  #[tracing::instrument(skip_all, fields(user_id = %user_id, conversation_len = %conversation.len()))]
+  async fn cache_user_conversation(&self, user_id: u64, conversation: &str) -> Result<()> {
+    self
+      .cache
+      .put(
+        user_id.to_le_bytes().to_vec(),
+        conversation.as_bytes().to_vec(),
+        // 7 days
+        Duration::from_secs(60 * 60 * 24 * 7),
+      )
+      .await?;
+
+    Ok(())
   }
 
   /// Called whenever a message is sent.
@@ -173,17 +197,24 @@ impl ChatBot {
 
     let message_in_english: String = self.translation.translate(&msg.content, "pt", "en").await?;
 
-    let mut chat_bot_text = self.chat_bot_text.lock().await;
+    let mut conversation = self
+      .get_conversation_for_user(msg.author.id.0)
+      .await?
+      .unwrap_or_default();
 
     // Save the chat bot response so we can use it as context later.
-    writeln!(&mut chat_bot_text, "Me: {}", &message_in_english)?;
+    writeln!(&mut conversation, "Me: {}", &message_in_english)?;
 
-    self.truncate_chat_bot_text_length(&mut chat_bot_text);
+    self.truncate_conversation_length(&mut conversation);
 
-    let bot_message_in_english = self.text_generator.generate(&chat_bot_text).await?;
+    let bot_message_in_english = self.text_generator.generate(&conversation).await?;
 
     // Add bot response to context.
-    writeln!(&mut chat_bot_text, "Eliza: {}", &bot_message_in_english)?;
+    writeln!(&mut conversation, "Eliza: {}", &bot_message_in_english)?;
+
+    self
+      .cache_user_conversation(msg.author.id.0, &conversation)
+      .await?;
 
     let bot_message_in_portuguese = self
       .translation

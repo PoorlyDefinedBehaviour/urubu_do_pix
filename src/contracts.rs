@@ -45,3 +45,10 @@ pub trait HttpClient: Send + Sync {
   ) -> Result<PostResponse>;
   async fn get(&self, url: &str, options: Option<GetOptions>) -> Result<GetResponse>;
 }
+
+#[cfg_attr(test, mockall::automock)]
+#[async_trait]
+pub trait Cache: Send + Sync {
+  async fn get(&self, key: &[u8]) -> Result<Option<Vec<u8>>>;
+  async fn put(&self, key: Vec<u8>, value: Vec<u8>, ttl: Duration) -> Result<()>;
+}
