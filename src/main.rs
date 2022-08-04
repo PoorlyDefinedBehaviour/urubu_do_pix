@@ -110,6 +110,18 @@ impl Bot {
     match args.next() {
       None => self.chatbot.join_text_channel(ctx, msg).await?,
       Some(subcommand) => match subcommand {
+        "history" => {
+          msg
+            .reply(
+              &ctx,
+              self
+                .chatbot
+                .conversation_history_for_user(msg.author.id.0)
+                .await?
+                .unwrap_or_else(|| String::from("Ainda não conversamos.")),
+            )
+            .await?;
+        }
         "voice" => {
           let arg = args.next();
           match arg {

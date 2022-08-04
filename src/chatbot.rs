@@ -157,7 +157,7 @@ impl ChatBot {
   }
 
   #[tracing::instrument(skip_all, fields(user_id = %user_id))]
-  async fn get_conversation_for_user(&self, user_id: u64) -> Result<Option<String>> {
+  pub async fn conversation_history_for_user(&self, user_id: u64) -> Result<Option<String>> {
     let conversation = self
       .cache
       .get(&user_id.to_le_bytes())
@@ -198,7 +198,7 @@ impl ChatBot {
     let message_in_english: String = self.translation.translate(&msg.content, "pt", "en").await?;
 
     let mut conversation = self
-      .get_conversation_for_user(msg.author.id.0)
+      .conversation_history_for_user(msg.author.id.0)
       .await?
       .unwrap_or_default();
 
