@@ -110,6 +110,13 @@ impl Bot {
     match args.next() {
       None => self.chatbot.join_text_channel(ctx, msg).await?,
       Some(subcommand) => match subcommand {
+        "sethistory" => {
+          self
+            .chatbot
+            .set_user_history(msg.author.id.0, &msg.content)
+            .await?;
+          msg.reply(&ctx, "history set").await?;
+        }
         "history" => {
           msg
             .reply(

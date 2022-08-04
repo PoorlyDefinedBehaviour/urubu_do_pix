@@ -167,6 +167,11 @@ impl ChatBot {
     Ok(conversation)
   }
 
+  #[tracing::instrument(skip_all, fields(user_id = %user_id))]
+  pub async fn set_user_history(&self, user_id: u64, history: &String) -> Result<()> {
+    self.cache_user_conversation(user_id, &history).await
+  }
+
   #[tracing::instrument(skip_all, fields(user_id = %user_id, conversation_len = %conversation.len()))]
   async fn cache_user_conversation(&self, user_id: u64, conversation: &str) -> Result<()> {
     self
