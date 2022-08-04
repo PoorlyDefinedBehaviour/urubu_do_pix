@@ -1,9 +1,8 @@
 # Running the bot
 
-Set up the development environment:
-
 ```
 docker-compose -f docker-compose-dev.yaml up -d
+cargo run
 ```
 
 ## TODO
