@@ -14,3 +14,5 @@ Retry google translate call when it returns an unexpected response. (see if we a
 
 The chatbot api returns an error sometimes, maybe we can just wait a few ms and retry.
 response="{\"error\":{\"code\":500,\"message\":\"Request to model backend failed: Expecting value: line 1 column 1 (char 0)\"}}" error=Error("missing field `data`", line: 1, column: 109)
+
+Classify things people talk about to find trends
