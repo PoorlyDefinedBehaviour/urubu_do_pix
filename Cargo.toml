@@ -24,6 +24,7 @@ serde_urlencoded = "0.7.1"
 async-trait = "0.1.56"
 futures = "0.3.21"
 bytes = "1.2.1"
+retry = { git = "https://github.com/PoorlyDefinedBehaviour/retry-rs.git", branch = "main" }
 
 [dependencies.serenity]
 version = "0.11.4"
