@@ -18,7 +18,9 @@ use tokio::sync::mpsc::{Receiver, Sender};
 use tokio::sync::RwLock;
 use tracing::{error, info};
 
-use crate::{audio, contracts, text_generation::TextGenerator, translation::Translation};
+use crate::{
+  audio, contracts, text_generation::TextGenerator, translation::Translation, utils::env_key,
+};
 
 pub struct ChatBot {
   /// The set of text channels that the bot will interact with messages.
@@ -157,14 +159,17 @@ impl ChatBot {
   }
 
   #[tracing::instrument(skip_all, fields(user_id = %user_id))]
-  pub async fn conversation_history_for_user(&self, user_id: u64) -> Result<Option<String>> {
+  pub async fn conversation_history_for_user(&self, user_id: u64) -> Result<String> {
     let conversation = self
       .cache
       .get(&user_id.to_le_bytes())
       .await?
       .map(|bytes| String::from_utf8_lossy(&bytes).to_string());
 
-    Ok(conversation)
+    match conversation {
+      None => Ok(env_key("CHAIML_INITIAL_CONTEXT")?),
+      Some(conversation) => Ok(conversation),
+    }
   }
 
   #[tracing::instrument(skip_all, fields(user_id = %user_id))]
@@ -202,10 +207,7 @@ impl ChatBot {
 
     let message_in_english: String = self.translation.translate(&msg.content, "pt", "en").await?;
 
-    let mut conversation = self
-      .conversation_history_for_user(msg.author.id.0)
-      .await?
-      .unwrap_or_default();
+    let mut conversation = self.conversation_history_for_user(msg.author.id.0).await?;
 
     // Save the chat bot response so we can use it as context later.
     writeln!(&mut conversation, "Me: {}", &message_in_english)?;

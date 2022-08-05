@@ -50,11 +50,11 @@ impl TextGenerator {
       .exec(|| async {
         let body = ChatBotRequest {
           text: context,
-          temperature: 0.6,
+          temperature: 0.9,
           repetition_penalty: 1.1,
           top_p: 1,
           top_k: 40,
-          response_length: 64,
+          response_length: 128,
         };
 
         let response = self

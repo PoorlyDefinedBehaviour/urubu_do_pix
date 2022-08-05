@@ -110,6 +110,13 @@ impl Bot {
     match args.next() {
       None => self.chatbot.join_text_channel(ctx, msg).await?,
       Some(subcommand) => match subcommand {
+        "eliza" => {
+          self
+            .chatbot
+            .set_user_history(msg.author.id.0, &env_key("CHAIML_INITIAL_CONTEXT")?)
+            .await?;
+          msg.reply(&ctx, "history set").await?;
+        }
         "sethistory" => {
           self
             .chatbot
@@ -124,8 +131,7 @@ impl Bot {
               self
                 .chatbot
                 .conversation_history_for_user(msg.author.id.0)
-                .await?
-                .unwrap_or_else(|| String::from("Ainda não conversamos.")),
+                .await?,
             )
             .await?;
         }
