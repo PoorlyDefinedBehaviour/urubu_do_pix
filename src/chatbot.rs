@@ -30,10 +30,10 @@ pub struct ChatBot {
   /// Push a message into this channel to play it in the voice chat.
   voice_chat_reply_sender: Sender<VoiceChatReply>,
   _voice_chat_reply_thread_handle: tokio::task::JoinHandle<()>,
-  tts: Arc<dyn contracts::TextToSpeech>,
+  tts: Arc<dyn contracts::tts::TextToSpeech>,
   text_generator: TextGenerator,
   translation: Translation,
-  cache: Arc<dyn contracts::Cache>,
+  cache: Arc<dyn contracts::cache::Cache>,
 }
 
 /// The maximum number of voice channel voice messages that can be in the queue.
@@ -57,10 +57,10 @@ impl std::fmt::Debug for VoiceChatReply {
 
 impl ChatBot {
   pub fn new(
-    tts: Arc<dyn contracts::TextToSpeech>,
+    tts: Arc<dyn contracts::tts::TextToSpeech>,
     text_generator: TextGenerator,
     translation: Translation,
-    cache: Arc<dyn contracts::Cache>,
+    cache: Arc<dyn contracts::cache::Cache>,
   ) -> Self {
     let (sender, receiver) = tokio::sync::mpsc::channel(MAX_VOICE_CHAT_REPLY_QUEUE_LENGTH);
 

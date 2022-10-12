@@ -4,12 +4,6 @@ use bytes::Bytes;
 use reqwest::header::HeaderMap;
 use std::time::Duration;
 
-#[cfg_attr(test, mockall::automock)]
-#[async_trait]
-pub trait TextToSpeech: Send + Sync {
-  async fn create_audio(&self, text: String) -> Result<Vec<String>>;
-}
-
 #[derive(Debug)]
 pub struct PostOptions {
   pub headers: Option<Vec<(String, String)>>,
@@ -44,11 +38,4 @@ pub trait HttpClient: Send + Sync {
     options: Option<PostOptions>,
   ) -> Result<PostResponse>;
   async fn get(&self, url: &str, options: Option<GetOptions>) -> Result<GetResponse>;
-}
-
-#[cfg_attr(test, mockall::automock)]
-#[async_trait]
-pub trait Cache: Send + Sync {
-  async fn get(&self, key: &[u8]) -> Result<Option<Vec<u8>>>;
-  async fn put(&self, key: Vec<u8>, value: Vec<u8>, ttl: Duration) -> Result<()>;
 }

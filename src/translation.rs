@@ -4,14 +4,14 @@ use retry::{Retry, ExponentialBackoff};
 use tracing::info;
 use anyhow::Result;
 
-use crate::contracts::{self, GetOptions};
+use crate::contracts::{self, http::GetOptions};
 
 pub struct Translation {
-  http_client: Arc<dyn contracts::HttpClient>
+  http_client: Arc<dyn contracts::http::HttpClient>
 }
 
 impl Translation {
-  pub fn new(http_client: Arc<dyn contracts::HttpClient>) -> Self {
+  pub fn new(http_client: Arc<dyn contracts::http::HttpClient>) -> Self {
     Self {
       http_client
     }

@@ -1,6 +1,10 @@
-use crate::contracts::{self, GetOptions, GetResponse, PostOptions, PostResponse};
 use anyhow::Result;
 use async_trait::async_trait;
+
+use crate::contracts::{
+  self,
+  http::{GetOptions, GetResponse, PostOptions, PostResponse},
+};
 
 pub struct ReqwestHttpClient {
   client: reqwest::Client,
@@ -15,7 +19,7 @@ impl ReqwestHttpClient {
 }
 
 #[async_trait]
-impl contracts::HttpClient for ReqwestHttpClient {
+impl contracts::http::HttpClient for ReqwestHttpClient {
   async fn post(
     &self,
     url: &str,

@@ -111,7 +111,7 @@ impl Tts {
 }
 
 #[async_trait]
-impl contracts::TextToSpeech for Tts {
+impl contracts::tts::TextToSpeech for Tts {
   /// Creates a mp3 file containing `text` and returns its url.
   #[tracing::instrument(skip_all)]
   async fn create_audio(&self, text: String) -> Result<Vec<String>> {

@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 use std::{sync::Arc, time::Duration};
 use tracing::{error, info};
 
-use crate::contracts::{self, PostOptions};
+use crate::contracts::{self, http::PostOptions};
 
 #[derive(Debug, Serialize)]
 struct ChatBotRequest<'a> {
@@ -29,11 +29,11 @@ pub struct Config {
 
 pub struct TextGenerator {
   config: Config,
-  http_client: Arc<dyn contracts::HttpClient>,
+  http_client: Arc<dyn contracts::http::HttpClient>,
 }
 
 impl TextGenerator {
-  pub fn new(config: Config, http_client: Arc<dyn contracts::HttpClient>) -> Self {
+  pub fn new(config: Config, http_client: Arc<dyn contracts::http::HttpClient>) -> Self {
     Self {
       http_client,
       config,
@@ -114,7 +114,7 @@ impl TextGenerator {
 mod generate_tests {
   use bytes::Bytes;
 
-  use crate::contracts::{MockHttpClient, PostResponse};
+  use crate::contracts::http::{MockHttpClient, PostResponse};
 
   use super::*;
 

@@ -18,6 +18,7 @@ mod audio;
 mod chatbot;
 mod contracts;
 mod infra;
+mod stream;
 mod text_generation;
 mod translation;
 mod tts;

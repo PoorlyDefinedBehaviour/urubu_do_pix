@@ -33,7 +33,7 @@ impl RedisCache {
 }
 
 #[async_trait]
-impl contracts::Cache for RedisCache {
+impl contracts::cache::Cache for RedisCache {
   #[tracing::instrument(skip_all, fields(key = %String::from_utf8_lossy(key)))]
   async fn get(&self, key: &[u8]) -> Result<Option<Vec<u8>>> {
     let value: Option<Vec<u8>> = self.client.get_async_connection().await?.get(key).await?;
@@ -54,7 +54,7 @@ impl contracts::Cache for RedisCache {
 
 #[cfg(test)]
 mod tests {
-  use crate::contracts::Cache;
+  use crate::contracts::cache::Cache;
 
   use super::*;
 
