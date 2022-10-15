@@ -1,0 +1,29 @@
+version: '2'
+services:
+  cache:
+    container_name: urubu_do_pix_cache
+    image: redis:latest
+    restart: always
+    ports:
+      - '6379:6379'
+    command: redis-server --save 20 1 --loglevel warning --requirepass password
+    volumes: 
+      - cache:/data
+      
+  selenium:
+    container_name: urubu_do_pix_selenium
+    privileged: true
+    image: selenium/standalone-chrome:latest
+    shm_size: 2gb
+    ports:
+      - '4444:4444'
+    environment:
+      - SE_EVENT_BUS_HOST=selenium-hub
+      - SE_EVENT_BUS_PUBLISH_PORT=4442
+      - SE_EVENT_BUS_SUBSCRIBE_PORT=4443
+
+volumes:
+  cache:
+    driver: local
+  
+  

@@ -25,6 +25,14 @@ async-trait = "0.1.56"
 futures = "0.3.21"
 bytes = "1.2.1"
 retry = { git = "https://github.com/PoorlyDefinedBehaviour/retry-rs.git", branch = "main" }
+thirtyfour = "0.31.0"
+enigo = "0.0.14"
+regex = "1.6.0"
+lazy_static = "1.4.0"
+thiserror = "1.0.37"
+axum = "0.5.16"
+tower-http = { version = "0.3.4", features = ["fs"] }
+tower = "0.4.13"
 
 [dependencies.serenity]
 version = "0.11.4"

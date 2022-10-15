@@ -124,7 +124,7 @@ impl ChatBot {
     }
   }
 
-  #[tracing::instrument(skip_all)]
+  #[tracing::instrument(name = "Chatbot::do_send_voice_chat_reply", skip_all)]
   async fn do_send_voice_chat_reply(message: VoiceChatReply) -> Result<()> {
     for audio_file_chunk_url in message.audio_file_urls.into_iter() {
       let track_handle =
@@ -140,7 +140,7 @@ impl ChatBot {
 
   /// Ensure the text sent to the chat bot is not too long because the api may
   /// get slow if it is.
-  #[tracing::instrument(skip_all)]
+  #[tracing::instrument(name = "Chatbot::truncate_conversation_length", skip_all)]
   fn truncate_conversation_length(&self, context: &mut String) {
     // The api has a limit of 5000 characters but the chat bot gets slow at around 3500.
     const MAX_CONVERSARTION_HISTORY_LEN: usize = 2750;
@@ -172,12 +172,12 @@ impl ChatBot {
     }
   }
 
-  #[tracing::instrument(skip_all, fields(user_id = %user_id))]
-  pub async fn set_user_history(&self, user_id: u64, history: &String) -> Result<()> {
-    self.cache_user_conversation(user_id, &history).await
+  #[tracing::instrument(name = "Chatbot::set_user_history", skip_all, fields(user_id = %user_id))]
+  pub async fn set_user_history(&self, user_id: u64, history: &str) -> Result<()> {
+    self.cache_user_conversation(user_id, history).await
   }
 
-  #[tracing::instrument(skip_all, fields(user_id = %user_id, conversation_len = %conversation.len()))]
+  #[tracing::instrument(name = "ChatBot::cache_user_conversation", skip_all, fields(user_id = %user_id, conversation_len = %conversation.len()))]
   async fn cache_user_conversation(&self, user_id: u64, conversation: &str) -> Result<()> {
     self
       .cache
@@ -193,7 +193,7 @@ impl ChatBot {
   }
 
   /// Called whenever a message is sent.
-  #[tracing::instrument(name = "conversation_bot", skip_all)]
+  #[tracing::instrument(name = "ChatBot::on_message", skip_all)]
   pub async fn on_message(&self, ctx: &Context, msg: &Message) -> Result<()> {
     if msg.is_own(ctx) {
       return Ok(());

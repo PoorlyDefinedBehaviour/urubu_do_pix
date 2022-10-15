@@ -1,6 +1,6 @@
 use std::{str::SplitWhitespace, sync::Arc};
 
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 use chatbot::ChatBot;
 use rand::Rng;
 use serenity::async_trait;
@@ -10,7 +10,7 @@ use serenity::model::gateway::Ready;
 use serenity::prelude::*;
 use songbird::SerenityInit;
 use tracing::{error, info};
-use tracing_bunyan_formatter::BunyanFormattingLayer;
+
 use tracing_subscriber::{filter::EnvFilter, layer::SubscriberExt, Registry};
 use tracing_tree::HierarchicalLayer;
 
@@ -18,15 +18,17 @@ mod audio;
 mod chatbot;
 mod contracts;
 mod infra;
-mod stream;
 mod text_generation;
 mod translation;
 mod tts;
 mod utils;
+mod video;
+mod video_stream_api;
 
 use text_generation::TextGenerator;
 use translation::Translation;
 use tts::Tts;
+use video::Video;
 
 use crate::{
   infra::{
@@ -39,11 +41,12 @@ use crate::{
 
 struct Bot {
   chatbot: ChatBot,
+  video: Arc<Video>,
 }
 
 impl Bot {
-  pub fn new(chatbot: ChatBot) -> Self {
-    Self { chatbot }
+  pub fn new(chatbot: ChatBot, video: Arc<Video>) -> Self {
+    Self { chatbot, video }
   }
 
   #[tracing::instrument(skip_all, fields(
@@ -90,6 +93,11 @@ impl Bot {
       "zanders" => zanders(&ctx, msg).await,
       "sound" => audio::handler(&ctx, msg, args.collect::<Vec<_>>()).await,
       "chatbot" => self.chatbot(&ctx, msg, args).await,
+      "video" => match args.next() {
+        None => Err(anyhow!("video url is required")),
+        Some(url) => self.video.play(&ctx, msg, url).await,
+      },
+      "videoskip" => self.video.skip_current_video(&ctx, msg).await,
       cmd => {
         info!("unknown command. command={}", cmd);
         Ok(())
@@ -204,19 +212,19 @@ impl EventHandler for Bot {
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
   dotenv::dotenv().expect("error reading .env file");
 
-  let (non_blocking_writer, _guard) = tracing_appender::non_blocking(std::io::stdout());
+  // let (non_blocking_writer, _guard) = tracing_appender::non_blocking(std::io::stdout());
 
-  let app_name = concat!(env!("CARGO_PKG_NAME"), "-", env!("CARGO_PKG_VERSION")).to_string();
+  // let app_name = concat!(env!("CARGO_PKG_NAME"), "-", env!("CARGO_PKG_VERSION")).to_string();
 
-  let bunyan_formatting_layer = BunyanFormattingLayer::new(app_name, non_blocking_writer);
+  // let bunyan_formatting_layer = BunyanFormattingLayer::new(app_name, non_blocking_writer);
 
   let subscriber = Registry::default()
     .with(EnvFilter::from_env("RUST_LOG"))
     // .with(JsonStorageLayer);
-    .with(HierarchicalLayer::new(1))
-    .with(bunyan_formatting_layer);
+    .with(HierarchicalLayer::new(1));
+  // .with(bunyan_formatting_layer);
 
-  tracing::subscriber::set_global_default(subscriber).unwrap();
+  tracing::subscriber::set_global_default(subscriber)?;
 
   let token = env_key("DISCORD_TOKEN")?;
 
@@ -226,30 +234,38 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
       | GatewayIntents::MESSAGE_CONTENT
       | GatewayIntents::GUILD_VOICE_STATES,
   )
-  .event_handler(Bot::new(ChatBot::new(
-    Arc::new(Tts::new()),
-    TextGenerator::new(
-      Config {
-        chaiml_developer_uuid: env_key("CHAIML_DEVELOPER_UUID")?,
-        chaiml_key: env_key("CHAIML_KEY")?,
-      },
-      Arc::new(ReqwestHttpClient::new()),
+  .event_handler(Bot::new(
+    ChatBot::new(
+      Arc::new(Tts::new()),
+      TextGenerator::new(
+        Config {
+          chaiml_developer_uuid: env_key("CHAIML_DEVELOPER_UUID")?,
+          chaiml_key: env_key("CHAIML_KEY")?,
+        },
+        Arc::new(ReqwestHttpClient::new()),
+      ),
+      Translation::new(Arc::new(ReqwestHttpClient::new())),
+      Arc::new(RedisCache::new(cache::redis::Config {
+        host: env_key("REDIS_HOST")?,
+        port: env_key("REDIS_PORT")?.parse::<u16>()?,
+        password: env_key("REDIS_PASSWORD")?,
+      })?),
     ),
-    Translation::new(Arc::new(ReqwestHttpClient::new())),
-    Arc::new(RedisCache::new(cache::redis::Config {
-      host: env_key("REDIS_HOST")?,
-      port: env_key("REDIS_PORT")?.parse::<u16>()?,
-      password: env_key("REDIS_PASSWORD")?,
-    })?),
-  )))
+    Video::new(Arc::new(infra::browser::Browser::new())),
+  ))
   .register_songbird()
   .await
   .expect("Failed to create bot");
 
   info!("starting bot");
 
-  if let Err(why) = client.start().await {
-    info!("An error occurred while running the client: {:?}", why);
+  let result: Result<(), anyhow::Error> = tokio::select! {
+    err = axum::Server::bind(&format!("0.0.0.0:{}", env_key("VIDEO_STREAM_API_PORT")?).parse()?).serve(video_stream_api::router().into_make_service()) => Err(anyhow!("{:?}", err)),
+    err = client.start() => Err(anyhow!("{:?}", err))
+  };
+
+  if let Err(err) = result {
+    info!("unexpected error. error={:?}", err);
   }
 
   Ok(())
