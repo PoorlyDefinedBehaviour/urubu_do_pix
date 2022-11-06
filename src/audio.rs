@@ -40,15 +40,12 @@ async fn join_channel(ctx: &Context, msg: &Message) -> Result<()> {
     .get(&ctx.cache.current_user_id())
     .and_then(|vs| vs.channel_id);
 
-  match bot_voice_channel_id {
-    Some(bot_voice_channel_id) => {
-      if bot_voice_channel_id != user_voice_channel_id {
-        check_message(msg.reply(ctx, "ja to em outra call dog").await);
-        return Ok(());
-      }
+  if let Some(bot_voice_channel_id) = bot_voice_channel_id {
+    if bot_voice_channel_id != user_voice_channel_id {
+      check_message(msg.reply(ctx, "ja to em outra call dog").await);
+      return Ok(());
     }
-    None => (),
-  };
+  }
 
   let _ = manager.join(guild_id, user_voice_channel_id).await;
 

@@ -1,8 +1,7 @@
 use anyhow::Result;
 use async_trait::async_trait;
 use enigo::{Enigo, Key, KeyboardControllable};
-use lazy_static::lazy_static;
-use regex::Regex;
+
 use serenity::model::prelude::{ChannelId, Message};
 use std::time::Duration;
 use thirtyfour::{
@@ -12,16 +11,15 @@ use thirtyfour::{
 use tokio::sync::{Mutex, MutexGuard};
 use tracing::info;
 
+mod stremio;
+mod twitch;
+mod youtube;
 use crate::{contracts, utils::env_key};
 
 /// NOTE: For selenium 3.x, use "http://localhost:4444/wd/hub/session".
 const SELENIUM_ENDPOINT: &str = "http://localhost:4444";
 const WINDOW_WIDTH: i64 = 1920;
 const WINDOW_HEIGHT: i64 = 1080;
-
-lazy_static! {
-  static ref GET_VIDEO_ID_FROM_YOUTUBE_URL_REGEX: Regex = Regex::new(r#"v=([\w\d_]+)"#).unwrap();
-}
 
 pub struct Browser {
   inner: Mutex<Inner>,
@@ -138,43 +136,6 @@ async fn open_discord_screen_share_screen_selection(driver: &WebDriver) -> WebDr
   // TODO: If we are already sharing the screen, click on Change Windows.
 }
 
-/// Kill the ffmpeg process if it is running.
-#[tracing::instrument(name = "kill_ffmpeg", skip_all)]
-async fn kill_ffmpeg() -> Result<std::process::Output, std::io::Error> {
-  tokio::process::Command::new("pkill")
-    .arg("ffmpeg")
-    .output()
-    .await
-}
-
-/// Tells ffmpeg to stream the stremio video as mp4
-/// because the browser video player does not understand the .mkv format
-/// which is the format used for stremio videos.
-#[tracing::instrument(name = "open_stremio_stream_in_ffmpeg", skip_all, fields(url = %url))]
-fn open_stremio_stream_in_ffmpeg(url: &str) -> Result<tokio::process::Child, std::io::Error> {
-  tokio::process::Command::new("ffmpeg")
-    .args(&[
-      "-i",
-      // TODO: is it a problem to pass anything to the ffmpeg command?
-      url,
-      "-listen",
-      "1",
-      "-preset",
-      "fast",
-      "-f",
-      "mp4",
-      "-crf",
-      "20",
-      "-movflags",
-      "frag_keyframe+empty_moov",
-      // Video will be streamed as mp4 on this endpoint.
-      "http://localhost:3001/video_stream",
-    ])
-    // Execute the command as a child process
-    // so the bot does not block until the process is done executing.
-    .spawn()
-}
-
 #[async_trait]
 impl contracts::browser::Browser for Browser {
   #[tracing::instrument(name = "Browser::play_video_on_discord", skip_all, fields(url = %url))]
@@ -215,40 +176,25 @@ impl contracts::browser::Browser for Browser {
 
     tokio::time::sleep(Duration::from_millis(200)).await;
 
-    kill_ffmpeg().await?;
-
-    let path = if is_stremio_stream_link(url) {
-      open_stremio_stream_in_ffmpeg(url)?;
-
-      format!(
-        "http://localhost:{}/static/index.html?is_stremio_video=1",
-        env_key("VIDEO_STREAM_API_PORT")?
-      )
-    } else {
-      format!(
-        "http://localhost:{}/static/index.html?youtube_video_id={}",
-        env_key("VIDEO_STREAM_API_PORT")?,
-        get_video_id_from_youtube_url(url)?
-      )
-    };
-
     // If it is a new video being played after the previous one is done playing.
     if let Some(current_video_tab) = inner.video_tab.clone() {
       // Open the file that contains the video in the same tab that was being
       // used to play the previous video.
       info!("switching to video tab");
       driver.switch_to_window(current_video_tab).await?;
-      info!("going to path. path={path}");
-      driver.goto(path).await?;
+
+      tokio::time::sleep(Duration::from_millis(200)).await;
+      open_video(&driver, url).await?;
     } else {
       // It is the first video being played by the bot so there's only two tabs:
       // The discord tab and the new video tab.
 
-      info!("opening video in a new tab. path={path}");
+      info!("opening video tab");
       let new_video_tab = driver.new_tab().await?;
       inner.video_tab = Some(new_video_tab.clone());
       driver.switch_to_window(new_video_tab).await?;
-      driver.goto(path).await?;
+
+      open_video(&driver, url).await?;
 
       info!("screen sharing video tab number 1");
       // SAFETY: initialized above.
@@ -320,6 +266,21 @@ impl contracts::browser::Browser for Browser {
   }
 }
 
+#[tracing::instrument(name = "browser::open_video", skip_all, fields(
+  url = %url
+))]
+async fn open_video(driver: &WebDriver, url: &str) -> Result<()> {
+  if is_twitch_link(url) {
+    twitch::open_live(&driver, url).await?;
+  } else if is_stremio_stream_link(url) {
+    stremio::open_stream_in_ffmpeg(&driver, url).await?;
+  } else {
+    youtube::open_video(&driver, url).await?;
+  }
+
+  Ok(())
+}
+
 #[tracing::instrument(name = "browser::open_server", skip_all)]
 async fn login(driver: &WebDriver, token: String) -> WebDriverResult<ScriptRet> {
   driver
@@ -350,14 +311,6 @@ async fn join_voice_channel(driver: &WebDriver, channel_id: ChannelId) -> WebDri
     .await
 }
 
-#[derive(Debug, PartialEq, Eq, thiserror::Error)]
-enum YoutubeUrlError {
-  #[error("the url is not supported: {0}")]
-  UnsupportedUrl(String),
-  #[error("it was not possible to get the video id from the youtube url")]
-  UnableToGetVideoId(String),
-}
-
 #[tracing::instrument(name = "browser::is_stremio_stream_link", skip_all, fields(url = %url, is_stremio_link))]
 fn is_stremio_stream_link(url: &str) -> bool {
   // A stremio stream url will look like this: http://127.0.0.1:11470/9d6bc3eab9687dcfe75b2933e7b46872726580aa/1
@@ -368,30 +321,12 @@ fn is_stremio_stream_link(url: &str) -> bool {
   is_stremio_link
 }
 
-#[tracing::instrument(name = "browser::get_video_id_from_youtube_url", skip_all, fields(url = %url))]
-fn get_video_id_from_youtube_url(url: &str) -> Result<String, YoutubeUrlError> {
-  if !url.starts_with("https://www.youtube.com/watch") {
-    return Err(YoutubeUrlError::UnsupportedUrl(url.to_owned()));
-  }
+#[tracing::instrument(name = "browser::is_twitch_link", skip_all, fields(url = %url, is_twitch_link))]
+fn is_twitch_link(url: &str) -> bool {
+  // A stremio stream url will look like this: http://127.0.0.1:11470/9d6bc3eab9687dcfe75b2933e7b46872726580aa/1
+  let is_twitch_link = url.starts_with("https://twitch.tv");
 
-  match GET_VIDEO_ID_FROM_YOUTUBE_URL_REGEX.captures(url) {
-    None => Err(YoutubeUrlError::UnableToGetVideoId(url.to_owned())),
-    Some(captures) => {
-      let video_id = &captures[1];
-      Ok(video_id.to_owned())
-    }
-  }
-}
+  tracing::Span::current().record("is_twitch_link", is_twitch_link);
 
-#[cfg(test)]
-mod get_video_id_from_youtube_url_tests {
-  use super::*;
-
-  #[test]
-  fn simple() {
-    assert_eq!(
-      get_video_id_from_youtube_url("https://www.youtube.com/watch?v=fy_SkwBOcXA"),
-      Ok("fy_SkwBOcXA".to_owned())
-    )
-  }
+  is_twitch_link
 }
